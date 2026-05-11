@@ -1,0 +1,36 @@
+export interface AnalysisPayload {
+  method: string;
+  methodTitle: string;
+  provider?: string;
+  currentText: string;
+  segmentText: string;
+  progress: {
+    currentIndex: number;
+    totalChunks: number;
+  };
+}
+
+export interface PreparePayload {
+  fileName: string;
+  provider?: string;
+  method: string;
+  methodTitle: string;
+  text: string;
+  offset: number;
+  pageStart: number;
+  pageEnd: number;
+  totalPages: number;
+  partial: boolean;
+}
+
+export interface GeminiCommandPayload {
+  action: "help" | "version" | "list-sessions" | "prompt";
+  prompt?: string;
+}
+
+export interface EvaluatePayload {
+  provider?: string;
+  question: string;
+  answer: string;
+  contextText: string;
+}

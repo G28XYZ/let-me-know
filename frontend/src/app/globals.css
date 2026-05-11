@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f6f7f3;
+  --color-surface: #ffffff;
+  --color-surface-strong: #f0f4f2;
+  --color-text: #17211d;
+  --color-muted: #66736c;
+  --color-line: #d9dfda;
+  --color-accent: #2f6f5e;
+  --color-accent-strong: #194d41;
+  --color-accent-soft: #dfeee8;
+  --color-warning: #9b4d20;
+  --color-warning-soft: #fff1df;
+  --color-danger: #9f3131;
+  --shadow-custom: 0 18px 48px rgba(23, 33, 29, 0.08);
+}
+
+@layer base {
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+  }
+}
+
+.spinner {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 14px;
+  border: 3px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
