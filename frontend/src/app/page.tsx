@@ -26,33 +26,46 @@ export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState("");
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
+    console.log(">>> PAGE LOAD: Component mounted");
+    setIsMounted(true);
     const auth = localStorage.getItem("auth_token");
+    console.log(">>> PAGE LOAD: auth_token in localStorage:", auth ? "exists (hidden for security)" : "is empty");
+    
     if (auth) {
+      console.log(">>> PAGE LOAD: Found token, setting isAuthenticated = true");
       setIsAuthenticated(true);
+    } else {
+      console.log(">>> PAGE LOAD: No token found, user must login");
     }
   }, []);
 
   const handleLogin = async (e: FormEvent) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setAuthError("");
     try {
-      const authEndpoint = state.apiEndpoint.replace("/analyze", "/auth");
-      const res = await fetch(authEndpoint, {
+      const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: passwordInput })
       });
+      
       if (res.ok) {
-        setIsAuthenticated(true);
         localStorage.setItem("auth_token", passwordInput);
+        setIsAuthenticated(true);
+        alert("Вход выполнен успешно!");
       } else {
-        setAuthError("Неверный пароль");
+        const errorData = await res.json().catch(() => ({}));
+        setAuthError(errorData.error || "Неверный пароль");
+        alert("Ошибка: " + (errorData.error || "Неверный пароль"));
       }
     } catch (e) {
       setAuthError("Ошибка сети или сервер недоступен");
+      alert("Ошибка сети");
     }
+    return false;
   };
 
   // Auto-scroll logic when spoken sentence changes
@@ -101,7 +114,7 @@ export default function Home() {
     setTtsCurrentTime(0);
 
     try {
-      const response = await fetchWithAuth("http://192.168.0.250:8000/api/tts", {
+      const response = await fetchWithAuth("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text })
@@ -867,16 +880,26 @@ export default function Home() {
       <div className="flex h-screen items-center justify-center bg-[#f6f7f3]">
         <div className="p-8 bg-surface border border-line rounded-lg shadow-xl text-center w-full max-w-sm">
           <h1 className="text-2xl font-bold mb-6 text-text">Learn Helper</h1>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleLogin(e);
+            }} 
+            className="flex flex-col gap-4"
+          >
             <input 
               type="password" 
               placeholder="Введите пароль" 
               className="p-3 border border-line rounded-lg text-text"
               value={passwordInput}
               onChange={e => setPasswordInput(e.target.value)}
+              autoFocus
             />
             {authError && <p className="text-danger text-sm">{authError}</p>}
-            <button type="submit" className="px-4 py-3 bg-accent text-white font-bold rounded-lg hover:bg-accent-strong transition-colors">
+            <button 
+              type="submit"
+              className="px-4 py-3 bg-accent text-white font-bold rounded-lg hover:bg-accent-strong transition-colors"
+            >
               Войти
             </button>
           </form>

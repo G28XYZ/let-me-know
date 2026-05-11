@@ -76,7 +76,7 @@ export function useReaderState() {
   const [lockMinimized, setLockMinimized] = useState(false);
   const [assistantStatus, setAssistantStatus] = useState("Ожидает материал");
   
-  const [apiEndpoint, setApiEndpoint] = useState("http://localhost:4173/api/analyze");
+  const [apiEndpoint, setApiEndpoint] = useState("/api/analyze");
   const [aiProvider, setAiProvider] = useState("openai-compatible");
   const [geminiConsole, setGeminiConsole] = useState<string>("Gemini CLI console output...");
 

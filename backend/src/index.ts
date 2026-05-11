@@ -20,6 +20,7 @@ app.use(express.json({ limit: "10mb" })); // Increase limit for large text files
 app.post("/api/auth", (req, res) => {
   const { password } = req.body;
   const expectedPassword = process.env.AUTH_PASSWORD;
+  console.log(`Auth attempt. Provided: "${password}", Expected: "${expectedPassword}"`);
   
   if (!expectedPassword || password === expectedPassword) {
     res.json({ success: true });
