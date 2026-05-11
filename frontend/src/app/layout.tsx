@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Script from "next/script";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -18,9 +17,11 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <head>
-        <Script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" strategy="beforeInteractive" />
       </head>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
+        {children}
+      </body>
     </html>
   );
 }

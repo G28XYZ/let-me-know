@@ -16,10 +16,36 @@ const host = process.env.HOST || "127.0.0.1";
 app.use(cors());
 app.use(express.json({ limit: "10mb" })); // Increase limit for large text files/PDFs
 
+// Simple Auth
+app.post("/api/auth", (req, res) => {
+  const { password } = req.body;
+  const expectedPassword = process.env.AUTH_PASSWORD;
+  
+  if (!expectedPassword || password === expectedPassword) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+});
+
+const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const expectedPassword = process.env.AUTH_PASSWORD;
+  if (!expectedPassword) {
+    return next();
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader === `Bearer ${expectedPassword}`) {
+    next();
+  } else {
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
 // Routes
-app.use("/api/health", healthRouter);
-app.use("/api/gemini", geminiRouter);
-app.use("/api", aiRouter);
+app.use("/api/health", authMiddleware, healthRouter);
+app.use("/api/gemini", authMiddleware, geminiRouter);
+app.use("/api", authMiddleware, aiRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

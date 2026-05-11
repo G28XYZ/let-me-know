@@ -2,26 +2,58 @@
 
 import { useReaderState, methodContent, MethodType } from "../hooks/useReaderState";
 import { paginateText, getChunkPageRange, extractKeywords, escapeHtml, escapeRegExp } from "../lib/utils";
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, FormEvent } from "react";
 
 export default function Home() {
   const { state, actions } = useReaderState();
   const pdfFrameRef = useRef<HTMLIFrameElement>(null);
   const readerTextRef = useRef<HTMLElement>(null);
   
-  const [quizAnswers, setQuizAnswers] = React.useState<Record<number, string>>({});
-  const [quizFeedback, setQuizFeedback] = React.useState<{ hasErrors: boolean; showHint: boolean } | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<Record<number, string>>({});
+  const [quizFeedback, setQuizFeedback] = useState<{ hasErrors: boolean; showHint: boolean } | null>(null);
 
-  const [answerText, setAnswerText] = React.useState("");
-  const [evaluating, setEvaluating] = React.useState(false);
-  const [evaluateFeedback, setEvaluateFeedback] = React.useState<{isCorrect: boolean, feedback: string, showHint: boolean} | null>(null);
+  const [answerText, setAnswerText] = useState("");
+  const [evaluating, setEvaluating] = useState(false);
+  const [evaluateFeedback, setEvaluateFeedback] = useState<{isCorrect: boolean, feedback: string, showHint: boolean} | null>(null);
 
-  const [isTtsLoading, setIsTtsLoading] = React.useState(false);
-  const [ttsAudioUrl, setTtsAudioUrl] = React.useState<string | null>(null);
-  const [ttsTimecodes, setTtsTimecodes] = React.useState<any[]>([]);
-  const [ttsCurrentTime, setTtsCurrentTime] = React.useState(0);
+  const [isTtsLoading, setIsTtsLoading] = useState(false);
+  const [ttsAudioUrl, setTtsAudioUrl] = useState<string | null>(null);
+  const [ttsTimecodes, setTtsTimecodes] = useState<any[]>([]);
+  const [ttsCurrentTime, setTtsCurrentTime] = useState(0);
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeSentenceRef = useRef<HTMLSpanElement>(null);
+
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    const auth = localStorage.getItem("auth_token");
+    if (auth) {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  const handleLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    try {
+      const authEndpoint = state.apiEndpoint.replace("/analyze", "/auth");
+      const res = await fetch(authEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordInput })
+      });
+      if (res.ok) {
+        setIsAuthenticated(true);
+        localStorage.setItem("auth_token", passwordInput);
+      } else {
+        setAuthError("Неверный пароль");
+      }
+    } catch (e) {
+      setAuthError("Ошибка сети или сервер недоступен");
+    }
+  };
 
   // Auto-scroll logic when spoken sentence changes
   useEffect(() => {
@@ -32,6 +64,13 @@ export default function Home() {
       });
     }
   }, [ttsCurrentTime, ttsTimecodes, state.ttsAutoScroll]);
+
+  const fetchWithAuth = async (url: string, options: any = {}) => {
+    const token = localStorage.getItem("auth_token");
+    const headers = { ...options.headers };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return fetch(url, { ...options, headers });
+  };
 
   // Expose global pdfjsLib if not already in types
   const getPdfJs = () => (window as any).pdfjsLib;
@@ -62,7 +101,7 @@ export default function Home() {
     setTtsCurrentTime(0);
 
     try {
-      const response = await fetch("http://192.168.0.250:8000/api/tts", {
+      const response = await fetchWithAuth("http://192.168.0.250:8000/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text })
@@ -191,7 +230,7 @@ export default function Home() {
     const end = Math.min(pages.length, 30);
     const textPart = pages.slice(0, end).join("\n\n").trim();
     
-    const response = await fetch(state.apiEndpoint.replace("/analyze", "/prepare"), {
+    const response = await fetchWithAuth(state.apiEndpoint.replace("/analyze", "/prepare"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -245,7 +284,7 @@ export default function Home() {
 
     try {
       const segmentText = chunks.slice(Math.max(0, lastPause), index + 1).join("\n\n");
-      const response = await fetch(state.apiEndpoint, {        method: "POST",
+      const response = await fetchWithAuth(state.apiEndpoint, {        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           method: state.method,
@@ -291,7 +330,7 @@ export default function Home() {
   const ensureAiReady = async () => {
     if (state.aiReady) return;
     const healthEndpoint = state.apiEndpoint.replace("/analyze", "/health") + `?provider=${encodeURIComponent(state.aiProvider)}`;
-    const res = await fetch(healthEndpoint);
+    const res = await fetchWithAuth(healthEndpoint);
     if (!res.ok) throw new Error("ИИ endpoint недоступен");
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || "ИИ endpoint не подтвердил готовность.");
@@ -308,7 +347,7 @@ export default function Home() {
       const end = Math.min(state.pages.length, start + 30);
       const textPart = state.pages.slice(start, end).join("\n\n").trim();
       
-      const response = await fetch(state.apiEndpoint.replace("/analyze", "/prepare"), {
+      const response = await fetchWithAuth(state.apiEndpoint.replace("/analyze", "/prepare"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -492,7 +531,7 @@ export default function Home() {
     setEvaluateFeedback(null);
 
     try {
-      const response = await fetch(state.apiEndpoint.replace("/analyze", "/evaluate"), {
+      const response = await fetchWithAuth(state.apiEndpoint.replace("/analyze", "/evaluate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -822,6 +861,29 @@ export default function Home() {
   const isSkipCurrentPreview = state.chunkMeta[state.currentIndex]?.skippable;
   const isSkipNextPreview = state.chunkMeta[nextIndexPreview]?.skippable;
   const willPauseNext = nextIndexPreview < state.chunks.length && !isSkipNextPreview && !isSkipCurrentPreview && (nextIndexPreview - state.lastPauseIndex >= state.pauseEvery);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#f6f7f3]">
+        <div className="p-8 bg-surface border border-line rounded-lg shadow-xl text-center w-full max-w-sm">
+          <h1 className="text-2xl font-bold mb-6 text-text">Learn Helper</h1>
+          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <input 
+              type="password" 
+              placeholder="Введите пароль" 
+              className="p-3 border border-line rounded-lg text-text"
+              value={passwordInput}
+              onChange={e => setPasswordInput(e.target.value)}
+            />
+            {authError && <p className="text-danger text-sm">{authError}</p>}
+            <button type="submit" className="px-4 py-3 bg-accent text-white font-bold rounded-lg hover:bg-accent-strong transition-colors">
+              Войти
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
