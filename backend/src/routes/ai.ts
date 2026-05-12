@@ -2,7 +2,7 @@ import { Router } from "express";
 import { config } from "../config";
 import { completeJson } from "../services/aiService";
 import { roughSplitText, parseJsonOrFallback, asArray, extractPageRange } from "../utils/text";
-import { PreparePayload, AnalysisPayload } from "../types";
+import { PreparePayload, AnalysisPayload, QuestionsPayload } from "../types";
 
 export const aiRouter = Router();
 
@@ -88,6 +88,36 @@ aiRouter.post("/analyze", async (req, res) => {
     );
     const analysis = parseAnalysis(text);
     res.status(200).json(analysis);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+aiRouter.post("/questions", async (req, res) => {
+  const payload = req.body as QuestionsPayload;
+  const provider = payload.provider || config.defaultProvider;
+
+  if (payload.featureEnabled === false) {
+    res.status(200).json({ featureEnabled: false, hasQuestions: false, question: "", quiz: [], practicalTask: "" });
+    return;
+  }
+
+  if (provider === "openai-compatible" && config.isOpenAiCloud && !config.apiKey) {
+    res.status(500).json({
+      error: "OPENAI_API_KEY is not set.",
+    });
+    return;
+  }
+
+  try {
+    const text = await completeJson(
+      "Ты компонент вопросов в сервисе изучающего чтения. Твоя зона ответственности - только вопросы на паузе повторения. Верни JSON-объект: {\"hasQuestions\": boolean, \"question\": \"string\", \"quiz\": [{\"question\":\"string\",\"options\":[\"string\"],\"correctAnswer\":\"string\"}], \"practicalTask\": \"string\"}. Если по отрывку нечего спрашивать, верни hasQuestions=false и пустые поля.",
+      buildQuestionsPrompt(payload),
+      800,
+      provider
+    );
+    const questions = parseQuestions(text);
+    res.status(200).json({ featureEnabled: true, ...questions });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -248,6 +278,50 @@ function buildPrompt(payload: AnalysisPayload) {
     null,
     2
   );
+}
+
+function buildQuestionsPrompt(payload: QuestionsPayload) {
+  return JSON.stringify(
+    {
+      method: payload.methodTitle || payload.method,
+      progress: payload.progress,
+      currentText: payload.currentText,
+      segmentTextSincePreviousQuestion: payload.segmentText,
+      previousContext: payload.previousContext || "",
+      task: "Сформируй короткую паузу повторения по segmentTextSincePreviousQuestion. previousContext можно использовать только если он явно связан с текущим отрывком. Предпочитай 1-2 тестовых вопроса и один открытый вопрос. Практическое задание добавляй только если оно естественно следует из материала. Верни строго один JSON-объект по схеме.",
+    },
+    null,
+    2
+  );
+}
+
+function parseQuestions(text: string) {
+  if (!text) {
+    return { hasQuestions: false, question: "", quiz: [], practicalTask: "" };
+  }
+
+  const withoutThinking = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const data = parseJsonOrFallback(withoutThinking, { hasQuestions: false, question: "", quiz: [], practicalTask: "" });
+  const quiz = Array.isArray(data.quiz)
+    ? data.quiz
+        .map((item: any) => ({
+          question: String(item?.question || "").trim(),
+          options: Array.isArray(item?.options) ? item.options.map((option: any) => String(option).trim()).filter(Boolean) : [],
+          correctAnswer: String(item?.correctAnswer || "").trim(),
+        }))
+        .filter((item: any) => item.question && item.options.length > 0 && item.correctAnswer)
+    : [];
+
+  const question = String(data.question || "").trim();
+  const practicalTask = String(data.practicalTask || "").trim();
+  const hasQuestions = Boolean(data.hasQuestions) && (Boolean(question) || quiz.length > 0 || Boolean(practicalTask));
+
+  return {
+    hasQuestions,
+    question,
+    quiz,
+    practicalTask,
+  };
 }
 
 function parseAnalysis(text: string) {

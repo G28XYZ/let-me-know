@@ -34,3 +34,17 @@ export interface EvaluatePayload {
   answer: string;
   contextText: string;
 }
+
+export interface QuestionsPayload {
+  provider?: string;
+  method: string;
+  methodTitle: string;
+  currentText: string;
+  segmentText: string;
+  previousContext?: string;
+  featureEnabled?: boolean;
+  progress: {
+    currentIndex: number;
+    totalChunks: number;
+  };
+}

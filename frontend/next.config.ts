@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // @ts-ignore
   allowedDevOrigins: ["5.128.164.38"],
   async rewrites() {
     return [

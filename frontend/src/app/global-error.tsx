@@ -1,6 +1,8 @@
 "use client";
 import React from 'react';
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  console.error(error);
+
   return (
     <html>
       <body>

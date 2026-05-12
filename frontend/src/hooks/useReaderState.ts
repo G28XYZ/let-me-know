@@ -1,46 +1,6 @@
-import { useState, useRef, useEffect } from "react";
-
-export type MethodType = "sq3r" | "notes" | "feynman";
-
-export interface MethodContent {
-  title: string;
-  guide: string[];
-  task: string;
-}
-
-export const methodContent: Record<MethodType, MethodContent> = {
-  sq3r: {
-    title: "SQ3R",
-    guide: [
-      "Survey: обзор структуры и ключевых тем.",
-      "Question: вопросы к материалу до и во время чтения.",
-      "Read: внимательное чтение фрагмента.",
-      "Recite: пересказ своими словами на паузах.",
-      "Review: повторение и проверка слабых мест.",
-    ],
-    task: "Перескажите основные идеи отрывка и сформулируйте один вопрос, на который он отвечает.",
-  },
-  notes: {
-    title: "Конспектирование",
-    guide: [
-      "Не копируйте текст дословно.",
-      "Перерабатывайте мысль своими словами.",
-      "Фиксируйте тезисы, связи, термины и карточки.",
-      "Связывайте новые заметки с уже прочитанным.",
-    ],
-    task: "Составьте короткий конспект отрывка своими словами: 3 тезиса и 1 связь с прошлым материалом.",
-  },
-  feynman: {
-    title: "Метод Фейнмана",
-    guide: [
-      "Объясните идею простыми словами.",
-      "Найдите места, где объяснение распадается.",
-      "Вернитесь к непонятному фрагменту.",
-      "Повторите объяснение проще и точнее.",
-    ],
-    task: "Объясните прочитанный отрывок так, как если бы рассказывали его человеку без подготовки.",
-  },
-};
+import { useState } from "react";
+import type { MethodType } from "@/lib/methods";
+import type { AnalysisItem, ChunkMeta, NoteItem } from "@/types/reader";
 
 export type LockStep = "quiz" | "practical" | "summary" | "none";
 
@@ -52,7 +12,7 @@ export function useReaderState() {
   const [pages, setPages] = useState<string[]>([]);
   const [totalPages, setTotalPages] = useState(0);
   const [chunks, setChunks] = useState<string[]>([]);
-  const [chunkMeta, setChunkMeta] = useState<any[]>([]);
+  const [chunkMeta, setChunkMeta] = useState<ChunkMeta[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [method, setMethod] = useState<MethodType>("sq3r");
   const [locked, setLocked] = useState(false);
@@ -65,10 +25,10 @@ export function useReaderState() {
   const [pendingNextIndex, setPendingNextIndex] = useState<number | null>(null);
   const [lastPauseIndex, setLastPauseIndex] = useState(0);
   const [pauseEvery] = useState(2);
-  const [notes, setNotes] = useState<any[]>([]);
-  const [aiHistory, setAiHistory] = useState<any[]>([]);
-  const [answers, setAnswers] = useState<any[]>([]);
-  const [documentOverview, setDocumentOverview] = useState<any>(null);
+  const [notes, setNotes] = useState<NoteItem[]>([]);
+  const [aiHistory, setAiHistory] = useState<AnalysisItem[]>([]);
+  const [answers, setAnswers] = useState<unknown[]>([]);
+  const [documentOverview, setDocumentOverview] = useState<unknown>(null);
   
   const [sourceCursor, setSourceCursor] = useState(0);
   const [sourceDone, setSourceDone] = useState(false);
@@ -77,7 +37,7 @@ export function useReaderState() {
   const [assistantStatus, setAssistantStatus] = useState("Ожидает материал");
   
   const [apiEndpoint, setApiEndpoint] = useState("/api/analyze");
-  const [aiProvider, setAiProvider] = useState("openai-compatible");
+  const [aiProvider, setAiProvider] = useState("geminit-cli");
   const [geminiConsole, setGeminiConsole] = useState<string>("Gemini CLI console output...");
 
   const [ttsHighlight, setTtsHighlight] = useState(true);
