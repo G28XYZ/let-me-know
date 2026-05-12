@@ -10,34 +10,41 @@ aiRouter.post("/prepare", async (req, res) => {
   const payload = req.body as PreparePayload;
   const provider = payload.provider || config.defaultProvider;
 
+  const text = String(payload.text || "").trim();
+  console.log(`>>> [/prepare] Received text from "${payload.fileName}". Length: ${text.length} chars.`);
+
   if (provider === "openai-compatible" && config.isOpenAiCloud && !config.apiKey) {
+    console.error(">>> [/prepare] AI endpoint not configured.");
     res.status(500).json({
       error: "AI endpoint is not configured. Set OPENAI_API_KEY or use local OPENAI_BASE_URL.",
     });
     return;
   }
 
-  const text = String(payload.text || "").trim();
-
   if (!text) {
+    console.warn(">>> [/prepare] Document text is empty.");
     res.status(400).json({ error: "Document text is empty." });
     return;
   }
 
   try {
     const candidates = roughSplitText(text);
+    console.log(`>>> [/prepare] Split into ${candidates.length} rough candidates.`);
     const chunks: any[] = [];
     const overviewParts: string[] = [];
 
     // Increase batch size or process more carefully for logical completeness
     for (let start = 0; start < candidates.length; start += 20) {
       const batch = candidates.slice(start, start + 20);
+      console.log(`>>> [/prepare] Processing batch ${start / 20 + 1}. Size: ${batch.length}`);
       const prepared = await prepareBatch(batch, payload, start, provider);
+      console.log(`>>> [/prepare] Batch ${start / 20 + 1} returned ${prepared.chunks?.length || 0} chunks.`);
       chunks.push(...(Array.isArray(prepared.chunks) ? prepared.chunks : []));
       if (prepared.overview) overviewParts.push(prepared.overview);
     }
 
     const normalizedChunks = normalizePreparedChunks(chunks, candidates);
+    console.log(`>>> [/prepare] Finished preparation. Final normalized chunks: ${normalizedChunks.length}.`);
 
     res.status(200).json({
       chunks: normalizedChunks,
@@ -56,6 +63,7 @@ aiRouter.post("/prepare", async (req, res) => {
       },
     });
   } catch (error: any) {
+    console.error(">>> [/prepare] Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -168,6 +176,8 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
+      if (!originalText) return;
+
       result.push({
         text: originalText,
         title: String(chunk.title || `Фрагмент ${result.length + 1}`),
@@ -188,6 +198,8 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
     const cleanedText = text
       .replace(/^Страница\s+\d+\s*/gim, "")
       .trim();
+
+    if (!cleanedText) return;
 
     result.push({
       text: cleanedText,

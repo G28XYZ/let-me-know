@@ -4,6 +4,24 @@ import { useReaderState, methodContent, MethodType } from "../hooks/useReaderSta
 import { paginateText, getChunkPageRange, extractKeywords, escapeHtml, escapeRegExp } from "../lib/utils";
 import { useEffect, useRef, useState, FormEvent } from "react";
 
+type PdfTextItem = { str?: string };
+type PdfTextContent = { items: PdfTextItem[] };
+type PdfPage = { getTextContent: () => Promise<PdfTextContent> };
+type PdfDocument = { numPages: number; getPage: (pageNumber: number) => Promise<PdfPage> };
+type PdfJs = {
+  GlobalWorkerOptions: { workerSrc: string };
+  getDocument: (source: { data: ArrayBuffer }) => { promise: Promise<PdfDocument> };
+};
+type ChunkMeta = {
+  type: string;
+  skippable: boolean;
+  reason: string;
+  title: string;
+  summary: string;
+  pageStart: number;
+  pageEnd: number;
+};
+
 export default function Home() {
   const { state, actions } = useReaderState();
   const pdfFrameRef = useRef<HTMLIFrameElement>(null);
@@ -86,14 +104,82 @@ export default function Home() {
   };
 
   // Expose global pdfjsLib if not already in types
-  const getPdfJs = () => (window as any).pdfjsLib;
+  const getPdfJs = () => (window as Window & { pdfjsLib?: PdfJs }).pdfjsLib;
+  const setupPdfJs = (pdfjsLib?: PdfJs) => {
+    if (!pdfjsLib) return;
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  };
+
+  const waitForPdfJs = async () => {
+    const existing = getPdfJs();
+    if (existing) {
+      setupPdfJs(existing);
+      return existing;
+    }
+
+    const script = document.querySelector<HTMLScriptElement>('script[src*="pdf.min.js"]');
+    if (script) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error("PDF.js не загрузился. Проверьте интернет или обновите страницу.")), 8000);
+        script.addEventListener("load", () => {
+          window.clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+        script.addEventListener("error", () => {
+          window.clearTimeout(timeout);
+          reject(new Error("Не удалось загрузить PDF.js для чтения PDF."));
+        }, { once: true });
+      });
+    }
+
+    const pdfjsLib = getPdfJs();
+    if (!pdfjsLib) {
+      throw new Error("PDF.js не загрузился. Попробуйте обновить страницу.");
+    }
+    setupPdfJs(pdfjsLib);
+    return pdfjsLib;
+  };
+
+  const cleanPageText = (value: string) => String(value || "")
+    .replace(/^Страница\s+\d+\s*/gim, "")
+    .replace(/\r/g, "")
+    .replace(/([a-zA-Zа-яА-ЯёЁ])-\s*\n\s*([a-zA-Zа-яА-ЯёЁ])/g, "$1$2")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const buildFallbackPrepared = (pages: string[], end = pages.length) => {
+    const chunks: string[] = [];
+    const metas: ChunkMeta[] = [];
+
+    pages.slice(0, end).forEach((page, index) => {
+      const text = cleanPageText(page);
+      if (!text) return;
+      chunks.push(text);
+      metas.push({
+        type: "study",
+        skippable: false,
+        reason: "",
+        title: `Страница ${index + 1}`,
+        summary: "",
+        pageStart: index + 1,
+        pageEnd: index + 1,
+      });
+    });
+
+    return {
+      chunks,
+      metas,
+      newCursor: Math.min(end, pages.length),
+      isDone: end >= pages.length,
+      overview: null,
+    };
+  };
 
   useEffect(() => {
     const pdfjsLib = getPdfJs();
-    if (pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    }
+    setupPdfJs(pdfjsLib);
   }, []);
 
   useEffect(() => {
@@ -136,6 +222,9 @@ export default function Home() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    let extractedTextLoaded = false;
+
+    console.log(`>>> [handleFileSelect] File selected: ${file.name} (${file.size} bytes, type: ${file.type})`);
 
     actions.setFileName(file.name);
     actions.setFileType(file.type || "unknown");
@@ -165,33 +254,32 @@ export default function Home() {
     actions.setBusy(true);
 
     try {
-      await ensureAiReady();
-
       let pagesArray: string[] = [];
       if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
         const url = URL.createObjectURL(file);
         actions.setPdfUrl(url);
         
-        const pdfjsLib = getPdfJs();
-        if (!pdfjsLib) {
-          throw new Error("PDF.js не загрузился. PDF будет виден как референс, но текст не извлечен.");
-        }
+        const pdfjsLib = await waitForPdfJs();
         const buffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        console.log(`>>> [handleFileSelect] PDF loaded. Pages: ${pdf.numPages}`);
+        
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
           const page = await pdf.getPage(pageNumber);
           const content = await page.getTextContent();
-          let pageText = content.items.map((item: any) => item.str).join(" ");
+          const pageText = content.items.map((item) => item.str || "").join(" ").trim();
+          console.log(`>>> [handleFileSelect] Page ${pageNumber} extracted. Length: ${pageText.length} chars.`);
           pagesArray.push(`Страница ${pageNumber}\n${pageText}`);
         }
       } else {
-        let text = await file.text();
+        const text = await file.text();
         const normalized = text
           .replace(/\r/g, "")
           .replace(/[ \t]+/g, " ")
           .replace(/\n{3,}/g, "\n\n")
           .trim();
         pagesArray = paginateText(normalized).map((pageText, index) => `Страница ${index + 1}\n${pageText}`);
+        console.log(`>>> [handleFileSelect] Text file loaded. Pages generated: ${pagesArray.length}`);
       }
 
       const preparedPages = pagesArray.map((page, index) => {
@@ -199,18 +287,40 @@ export default function Home() {
         return /^Страница\s+\d+/i.test(text) ? text : `Страница ${index + 1}\n${text}`;
       });
       
+      const totalContentLength = preparedPages.reduce((acc, p) => acc + p.length, 0);
+      console.log(`>>> [handleFileSelect] Total extracted content length: ${totalContentLength}`);
+
+      if (totalContentLength < 50) {
+        console.warn(">>> [handleFileSelect] Extracted content is very short. Might be a scanned document.");
+      }
+
       actions.setPages(preparedPages);
       actions.setTotalPages(preparedPages.length);
       actions.setText(preparedPages.join("\n\n"));
-      
-      // Since states are batched, we need to pass the initial source values manually to the next step
-      // For simplicity, we just use a small functional approach inside the component.
+      extractedTextLoaded = true;
+
+      const fallback = buildFallbackPrepared(preparedPages);
+      actions.setSourceCursor(fallback.newCursor);
+      actions.setSourceDone(fallback.isDone);
+      actions.setChunks(fallback.chunks);
+      actions.setChunkMeta(fallback.metas);
+      actions.setDocumentOverview(fallback.overview);
+      actions.setAssistantStatus(fallback.chunks.length
+        ? "Материал загружен. Готовлю ИИ-разбиение..."
+        : "В документе не найден текст для чтения.");
+
+      if (fallback.chunks.length === 0) {
+        throw new Error("В документе не найден текст для чтения. Если это сканированный PDF, нужен файл с распознанным текстом.");
+      }
       
       actions.setBusyTitle("ИИ готовит начало документа");
-      actions.setBusyText("Загружаю первую часть, разбиваю ее на фрагменты и анализирую вводные разделы...");
+      actions.setBusyText("Загружаю первую часть, разбиваю ее на фрагменты...");
       
-      // Simulate `prepareNextDocumentPart` with current variables
-      const { chunks, metas, newCursor, isDone, overview } = await prepareInitialPart(preparedPages, file.name);
+      console.log(">>> [handleFileSelect] Calling prepareInitialPart...");
+      await ensureAiReady();
+      const prepared = await prepareInitialPart(preparedPages, file.name);
+      const { chunks, metas, newCursor, isDone, overview } = prepared.chunks.length ? prepared : fallback;
+      console.log(`>>> [handleFileSelect] Received ${chunks.length} chunks from server.`);
       
       actions.setSourceCursor(newCursor);
       actions.setSourceDone(isDone);
@@ -218,6 +328,10 @@ export default function Home() {
       actions.setChunkMeta(metas);
       actions.setDocumentOverview(overview);
       
+      if (chunks.length === 0) {
+        throw new Error("Сервер вернул пустой список фрагментов. Возможно, текст не удалось распознать.");
+      }
+
       let firstStudy = 0;
       for (let i = 0; i < metas.length; i++) {
         if (metas[i].type === "study" || !metas[i].skippable) {
@@ -233,7 +347,11 @@ export default function Home() {
       await analyzeTargetChunk(0, chunks, metas, file.name, firstStudy, overview);
 
     } catch (error: any) {
+      console.error(">>> [handleFileSelect] Error:", error);
       actions.setAssistantStatus(error.message || "Не удалось загрузить материал.");
+      if (!extractedTextLoaded) {
+        alert("Ошибка при загрузке: " + error.message);
+      }
     } finally {
       actions.setBusy(false);
     }
@@ -779,7 +897,23 @@ export default function Home() {
   const renderChunk = () => {
     const chunk = state.chunks[state.currentIndex];
     const meta = state.chunkMeta[state.currentIndex];
-    if (!chunk) return <p>Загрузите `.txt` или `.pdf`, выберите метод изучения и начните чтение.</p>;
+    
+    if (state.chunks.length === 0) return (
+      <div className="flex flex-col items-center justify-center h-full p-8 text-center text-muted">
+        <svg className="w-16 h-16 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        <p className="max-w-xs">
+          {state.fileName 
+            ? (state.assistantStatus.includes("Ошибка") || state.assistantStatus.includes("не смог") 
+                ? `Ошибка при обработке: ${state.assistantStatus}`
+                : "В документе не найден текст для чтения. Попробуйте другой файл или убедитесь, что это не сканированный PDF.")
+            : "Загрузите .txt или .pdf, выберите метод изучения и начните чтение."}
+        </p>
+      </div>
+    );
+
+    if (chunk === undefined) return <p className="p-4 text-danger">Ошибка: фрагмент не найден.</p>;
     
     const wordCount = chunk.trim().split(/\s+/).length;
     const readingTime = Math.max(1, Math.ceil(wordCount / 200));
