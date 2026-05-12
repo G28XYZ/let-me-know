@@ -13,7 +13,7 @@ import { methodContent, type MethodType } from "@/lib/methods";
 import { paginateText } from "@/lib/utils";
 import type { AnalysisItem, ChunkMeta, NoteItem } from "@/types/reader";
 
-type PdfTextItem = { str?: string };
+type PdfTextItem = { str?: string; transform?: number[]; hasEOL?: boolean };
 type PdfTextContent = { items: PdfTextItem[] };
 type PdfPage = { getTextContent: () => Promise<PdfTextContent> };
 type PdfDocument = { numPages: number; getPage: (pageNumber: number) => Promise<PdfPage> };
@@ -37,6 +37,10 @@ type PreparedApiResponse = {
 };
 type AnalysisApiResponse = Partial<Omit<AnalysisItem, "chunkIndex" | "method" | "createdAt">>;
 
+const PREPARE_TARGET_CHUNKS = 5;
+const PREPARE_PAGE_BATCH_SIZE = 6;
+const PREPARE_AHEAD_CHUNKS = 1;
+
 export default function Home() {
   const { state, actions } = useReaderState();
   const readerTextRef = useRef<HTMLElement>(null);
@@ -44,9 +48,7 @@ export default function Home() {
   const activeSentenceRef = useRef<HTMLSpanElement>(null);
   const reviewGateRef = useRef<ReviewGateHandle>(null);
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => (
-    typeof window !== "undefined" && Boolean(localStorage.getItem("auth_token"))
-  ));
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState("");
   const [questionsEnabled, setQuestionsEnabled] = useState(true);
@@ -54,6 +56,12 @@ export default function Home() {
   const [ttsAudioUrl, setTtsAudioUrl] = useState<string | null>(null);
   const [ttsTimecodes, setTtsTimecodes] = useState<{ start: number; end: number; text: string }[]>([]);
   const [ttsCurrentTime, setTtsCurrentTime] = useState(0);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setIsAuthenticated(Boolean(localStorage.getItem("auth_token")));
+    });
+  }, []);
 
   const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem("auth_token");
@@ -129,6 +137,41 @@ export default function Home() {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  const extractPdfTextContent = (content: PdfTextContent) => {
+    const lines: string[] = [];
+    let currentLine: string[] = [];
+    let previousY: number | null = null;
+
+    content.items.forEach((item) => {
+      const text = String(item.str || "").replace(/\s+/g, " ").trim();
+      if (!text) return;
+
+      const y = Array.isArray(item.transform) ? item.transform[5] : null;
+      if (typeof y === "number" && previousY !== null && Math.abs(y - previousY) > 2 && currentLine.length) {
+        lines.push(currentLine.join(" "));
+        currentLine = [];
+      }
+
+      currentLine.push(text);
+      previousY = typeof y === "number" ? y : previousY;
+
+      if (item.hasEOL && currentLine.length) {
+        lines.push(currentLine.join(" "));
+        currentLine = [];
+      }
+    });
+
+    if (currentLine.length) lines.push(currentLine.join(" "));
+
+    return lines
+      .map((line) => line.replace(/[ \t]+/g, " ").trim())
+      .filter(Boolean)
+      .join("\n")
+      .replace(/([a-zA-Zа-яА-ЯёЁ])-\s*\n\s*([a-zA-Zа-яА-ЯёЁ])/g, "$1$2")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  };
+
   const buildFallbackPrepared = (pages: string[], end = pages.length): PreparedDocument => {
     const chunks: string[] = [];
     const metas: ChunkMeta[] = [];
@@ -195,7 +238,7 @@ export default function Home() {
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
         const page = await pdf.getPage(pageNumber);
         const content = await page.getTextContent();
-        const pageText = content.items.map((item) => item.str || "").join(" ").trim();
+        const pageText = extractPdfTextContent(content);
         pagesArray.push(`Страница ${pageNumber}\n${pageText}`);
       }
 
@@ -239,7 +282,8 @@ export default function Home() {
       actions.setText(preparedPages.join("\n\n"));
       extractedTextLoaded = true;
 
-      const fallback = buildFallbackPrepared(preparedPages);
+      const initialEnd = getNextPrepareEnd(0, preparedPages.length);
+      const fallback = buildFallbackPrepared(preparedPages, initialEnd);
       actions.setSourceCursor(fallback.newCursor);
       actions.setSourceDone(fallback.isDone);
       actions.setChunks(fallback.chunks);
@@ -284,7 +328,7 @@ export default function Home() {
   };
 
   const prepareInitialPart = async (pages: string[], filename: string): Promise<PreparedDocument> => {
-    const end = Math.min(pages.length, 30);
+    const end = getNextPrepareEnd(0, pages.length);
     const textPart = pages.slice(0, end).join("\n\n").trim();
     const data = await requestPreparedDocument(textPart, filename, 0, end, pages.length);
 
@@ -294,6 +338,10 @@ export default function Home() {
       isDone: end >= pages.length,
     };
   };
+
+  const getNextPrepareEnd = (start: number, totalPages: number) => (
+    Math.min(totalPages, start + PREPARE_PAGE_BATCH_SIZE)
+  );
 
   const requestPreparedDocument = async (textPart: string, filename: string, start: number, end: number, totalPages: number): Promise<PreparedDocument> => {
     const response = await fetchWithAuth(state.apiEndpoint.replace("/analyze", "/prepare"), {
@@ -305,6 +353,7 @@ export default function Home() {
         method: state.method,
         methodTitle: methodContent[state.method].title,
         text: textPart,
+        targetChunks: PREPARE_TARGET_CHUNKS,
         offset: start,
         pageStart: start + 1,
         pageEnd: end,
@@ -415,7 +464,7 @@ export default function Home() {
     actions.setPreparingMore(true);
     try {
       const start = state.sourceCursor;
-      const end = Math.min(state.pages.length, start + 30);
+      const end = getNextPrepareEnd(start, state.pages.length);
       const textPart = state.pages.slice(start, end).join("\n\n").trim();
       const data = await requestPreparedDocument(textPart, state.fileName, start, end, state.pages.length);
 
@@ -460,8 +509,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!state.sourceDone && !state.preparingMore && state.chunks.length > 0) {
-      const threshold = Math.floor(state.chunks.length * 0.5);
-      if (state.currentIndex >= threshold) {
+      const chunksLeft = state.chunks.length - state.currentIndex - 1;
+      if (chunksLeft <= PREPARE_AHEAD_CHUNKS) {
         prepareMoreParts();
       }
     }
@@ -492,6 +541,13 @@ export default function Home() {
     if (state.busy) return;
 
     const nextIndex = state.currentIndex + 1;
+    if (state.locked) {
+      if (state.pendingNextIndex !== null && nextIndex < state.pendingNextIndex) {
+        actions.setCurrentIndex(nextIndex);
+      }
+      return;
+    }
+
     let currentChunks = state.chunks;
     let currentMetas = state.chunkMeta as ChunkMeta[];
 
@@ -540,7 +596,7 @@ export default function Home() {
   };
 
   const handlePrev = () => {
-    if (state.busy || state.currentIndex === 0 || state.locked) return;
+    if (state.busy || state.currentIndex === 0) return;
     actions.setCurrentIndex(state.currentIndex - 1);
   };
 
@@ -591,6 +647,10 @@ export default function Home() {
     && !isSkipCurrentPreview
     && (nextIndexPreview - state.lastPauseIndex >= state.pauseEvery);
 
+  if (isAuthenticated === null) {
+    return null;
+  }
+
   if (!isAuthenticated) {
     return (
       <AuthScreen
@@ -633,6 +693,7 @@ export default function Home() {
           busy={state.busy}
           isAnalyzing={state.isAnalyzing}
           locked={state.locked}
+          pendingNextIndex={state.pendingNextIndex}
           sourceDone={state.sourceDone}
           preparingMore={state.preparingMore}
           assistantStatus={state.assistantStatus}

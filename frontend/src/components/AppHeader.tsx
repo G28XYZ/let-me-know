@@ -24,7 +24,6 @@ export function AppHeader({ method, busy, onFileSelect, onMethodChange }: AppHea
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-line bg-[#f6f7f3]/90 backdrop-blur-md">
       <div>
-        <p className="text-accent text-xs font-extrabold uppercase tracking-wide mb-1">MVP</p>
         <h1 className="text-2xl font-bold m-0">Learn Helper</h1>
       </div>
       <div className="flex flex-col sm:flex-row gap-3">

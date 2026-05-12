@@ -8,11 +8,43 @@ export function getGeminiConsole() {
 }
 
 export function appendGeminiConsole(entry: any) {
+  const metadata = buildGeminiInvocationMetadata(entry.args);
   geminiConsole.push({
     ...entry,
+    metadata,
     args: entry.args.map((arg: string) => (arg.length > 220 ? `${arg.slice(0, 220)}...` : arg)),
   });
   if (geminiConsole.length > 30) geminiConsole.shift();
+}
+
+export function buildGeminiInvocationMetadata(args: string[]) {
+  const model = getArgValue(args, "--model") || getArgValue(args, "-m") || "";
+  const prompt = getArgValue(args, "--prompt") || getArgValue(args, "-p") || "";
+  const outputFormat = getArgValue(args, "--output-format") || getArgValue(args, "-o") || "";
+
+  return {
+    model: model || null,
+    modelSource: model ? "argument" : "cli-default",
+    promptChars: prompt.length,
+    promptPreview: prompt ? compactPreview(prompt, 500) : "",
+    outputFormat: outputFormat || null,
+    skipTrust: args.includes("--skip-trust"),
+    headless: args.includes("--prompt") || args.includes("-p"),
+  };
+}
+
+function getArgValue(args: string[], longName: string, shortName?: string) {
+  const names = shortName ? [longName, shortName] : [longName];
+  for (const name of names) {
+    const index = args.indexOf(name);
+    if (index >= 0 && index < args.length - 1) return String(args[index + 1] || "");
+  }
+  return "";
+}
+
+function compactPreview(value: string, limit: number) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
 }
 
 export function runGemini(args: string[], timeoutMs: number): Promise<{ code: number; output: string; error?: string }> {

@@ -16,6 +16,7 @@ export interface PreparePayload {
   method: string;
   methodTitle: string;
   text: string;
+  targetChunks?: number;
   offset: number;
   pageStart: number;
   pageEnd: number;
@@ -24,7 +25,7 @@ export interface PreparePayload {
 }
 
 export interface GeminiCommandPayload {
-  action: "help" | "version" | "list-sessions" | "prompt";
+  action: "help" | "version" | "list-sessions" | "diagnostics" | "prompt";
   prompt?: string;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { methodContent, type MethodType } from "@/lib/methods";
 import type { FetchWithAuth, QuestionSet } from "@/types/reader";
 
@@ -107,6 +107,11 @@ type QuestionApiResponse = {
   practicalTask?: unknown;
 };
 
+type CachedReview = {
+  questionSet: QuestionSet;
+  evaluationContext: string;
+};
+
 /**
  * Автономный компонент вопросов на паузе повторения.
  *
@@ -134,11 +139,16 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
   const [answerText, setAnswerText] = useState("");
   const [evaluating, setEvaluating] = useState(false);
   const [evaluateFeedback, setEvaluateFeedback] = useState<EvaluationFeedback | null>(null);
+  const [evaluationContext, setEvaluationContext] = useState("");
+  const [currentReviewKey, setCurrentReviewKey] = useState("");
+  const reviewCacheRef = useRef(new Map<string, CachedReview>());
+  const completedReviewKeysRef = useRef(new Set<string>());
 
   const questionEndpoint = useMemo(() => apiEndpoint.replace("/analyze", "/questions"), [apiEndpoint]);
+  const analyzeEndpoint = useMemo(() => apiEndpoint, [apiEndpoint]);
   const evaluateEndpoint = useMemo(() => apiEndpoint.replace("/analyze", "/evaluate"), [apiEndpoint]);
 
-  const reset = () => {
+  const closeReview = () => {
     setActive(false);
     setMinimized(false);
     setLoading(false);
@@ -149,6 +159,14 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
     setAnswerText("");
     setEvaluating(false);
     setEvaluateFeedback(null);
+    setEvaluationContext("");
+    setCurrentReviewKey("");
+  };
+
+  const reset = () => {
+    closeReview();
+    reviewCacheRef.current.clear();
+    completedReviewKeysRef.current.clear();
   };
 
   const chooseFirstStep = (nextQuestionSet: QuestionSet): ReviewStep => {
@@ -184,9 +202,27 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
     openForSegment: async (input) => {
       if (!enabled || !input.segmentText.trim()) return false;
 
+      const reviewKey = buildReviewKey(method, provider, input);
+      if (completedReviewKeysRef.current.has(reviewKey)) return false;
+
+      const cachedReview = reviewCacheRef.current.get(reviewKey);
+      if (cachedReview) {
+        setQuestionSet(cachedReview.questionSet);
+        setEvaluationContext(cachedReview.evaluationContext);
+        setCurrentReviewKey(reviewKey);
+        setStep(chooseFirstStep(cachedReview.questionSet));
+        setActive(true);
+        setMinimized(false);
+        setQuizAnswers({});
+        setQuizFeedback(null);
+        setAnswerText("");
+        setEvaluateFeedback(null);
+        return true;
+      }
+
       setLoading(true);
       try {
-        const response = await fetchWithAuth(questionEndpoint, {
+        const requestOptions = {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -202,7 +238,12 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
             },
             featureEnabled: enabled,
           }),
-        });
+        };
+
+        let response = await fetchWithAuth(questionEndpoint, requestOptions);
+        if (response.status === 404) {
+          response = await fetchWithAuth(analyzeEndpoint, requestOptions);
+        }
 
         if (!response.ok) return false;
         const data = await response.json() as QuestionApiResponse;
@@ -211,7 +252,14 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
         const nextQuestionSet = normalizeQuestionSet(data);
         if (!nextQuestionSet) return false;
 
+        const nextEvaluationContext = input.segmentText || input.currentText;
+        reviewCacheRef.current.set(reviewKey, {
+          questionSet: nextQuestionSet,
+          evaluationContext: nextEvaluationContext,
+        });
         setQuestionSet(nextQuestionSet);
+        setEvaluationContext(nextEvaluationContext);
+        setCurrentReviewKey(reviewKey);
         setStep(chooseFirstStep(nextQuestionSet));
         setActive(true);
         setMinimized(false);
@@ -247,7 +295,10 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
       return;
     }
 
-    reset();
+    if (currentReviewKey) {
+      completedReviewKeysRef.current.add(currentReviewKey);
+    }
+    closeReview();
     onComplete();
   };
 
@@ -281,7 +332,7 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
           provider,
           question,
           answer: answerText,
-          contextText,
+          contextText: evaluationContext || contextText,
         }),
       });
 
@@ -450,3 +501,21 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
     </div>
   );
 });
+
+function buildReviewKey(method: MethodType, provider: string, input: ReviewGateOpenInput) {
+  return [
+    method,
+    provider,
+    input.currentIndex,
+    input.totalChunks,
+    hashText(input.segmentText),
+  ].join(":");
+}
+
+function hashText(text: string) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return String(hash);
+}

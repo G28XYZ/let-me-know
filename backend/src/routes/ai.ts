@@ -8,7 +8,7 @@ export const aiRouter = Router();
 
 aiRouter.post("/prepare", async (req, res) => {
   const payload = req.body as PreparePayload;
-  const provider = payload.provider || config.defaultProvider;
+  const provider = normalizeProvider(payload.provider);
 
   const text = String(payload.text || "").trim();
   console.log(`>>> [/prepare] Received text from "${payload.fileName}". Length: ${text.length} chars.`);
@@ -70,7 +70,7 @@ aiRouter.post("/prepare", async (req, res) => {
 
 aiRouter.post("/analyze", async (req, res) => {
   const payload = req.body as AnalysisPayload;
-  const provider = payload.provider || config.defaultProvider;
+  const provider = normalizeProvider(payload.provider);
 
   if (provider === "openai-compatible" && config.isOpenAiCloud && !config.apiKey) {
     res.status(500).json({
@@ -95,7 +95,7 @@ aiRouter.post("/analyze", async (req, res) => {
 
 aiRouter.post("/questions", async (req, res) => {
   const payload = req.body as QuestionsPayload;
-  const provider = payload.provider || config.defaultProvider;
+  const provider = normalizeProvider(payload.provider);
 
   if (payload.featureEnabled === false) {
     res.status(200).json({ featureEnabled: false, hasQuestions: false, question: "", quiz: [], practicalTask: "" });
@@ -125,7 +125,7 @@ aiRouter.post("/questions", async (req, res) => {
 
 aiRouter.post("/evaluate", async (req, res) => {
   const payload = req.body as import("../types").EvaluatePayload;
-  const provider = payload.provider || config.defaultProvider;
+  const provider = normalizeProvider(payload.provider);
 
   if (provider === "openai-compatible" && config.isOpenAiCloud && !config.apiKey) {
     res.status(500).json({
@@ -152,25 +152,46 @@ aiRouter.post("/evaluate", async (req, res) => {
   }
 });
 
+function normalizeProvider(value?: string) {
+  const provider = String(value || config.defaultProvider || "").trim();
+  if (provider === "gemini-cli") return "gemini-cli";
+  if (provider === "openai-compatible") return "openai-compatible";
+  return config.defaultProvider === "gemini-cli" ? "gemini-cli" : "openai-compatible";
+}
+
 async function prepareBatch(batch: string[], payload: PreparePayload, globalStart: number, provider: string) {
+  const targetChunks = Number.isFinite(payload.targetChunks) && Number(payload.targetChunks) > 0
+    ? Math.max(1, Math.floor(Number(payload.targetChunks)))
+    : 3;
+
   const prompt = JSON.stringify(
     {
       fileName: payload.fileName || "",
       method: payload.methodTitle || payload.method || "",
+      targetChunks,
       candidates: batch.map((text, offset) => ({
         id: globalStart + offset,
         text,
       })),
-      task: "Твоя задача - сгруппировать id кандидатов в КРУПНЫЕ логически завершенные фрагменты. ВАЖНО: не сокращай, не перефразируй и не меняй текст! Каждый фрагмент должен доводить мысль до логического завершения (до точки). Фрагмент должен объединять по 5-10 id. Оглавление и введение помечай skippable=true. Верни строго JSON: {\"overview\":\"string\",\"chunks\":[{\"candidateIds\":[number],\"title\":\"название темы\",\"type\":\"toc|introduction|study\",\"skippable\":boolean,\"summary\":\"краткая тема\"}]}",
+      task: [
+        "Сгруппируй id кандидатов в НЕ БОЛЕЕ targetChunks логически завершенных фрагментов.",
+        "Для каждого фрагмента верни readableText: тот же материал в удобном для чтения виде.",
+        "В readableText можно только восстанавливать абзацы, заголовки, маркированные/нумерованные списки и очевидно недостающую пунктуацию.",
+        "Нельзя сокращать, пересказывать, переводить, добавлять новые факты или менять смысл. Если пунктуация неочевидна, оставь исходную формулировку.",
+        "Минимальная разметка допустима только текстовая: пустые строки между абзацами, строки '# Заголовок', '- пункт', '1. пункт'.",
+        "Удали явные артефакты извлечения PDF: номера страниц, колонтитулы, склейки переносов слов.",
+        "Оглавление и введение помечай skippable=true. Если кандидатов мало, верни меньше фрагментов.",
+        "Верни строго JSON: {\"overview\":\"string\",\"chunks\":[{\"candidateIds\":[number],\"title\":\"название темы\",\"type\":\"toc|introduction|study\",\"skippable\":boolean,\"summary\":\"краткая тема\",\"readableText\":\"полный текст фрагмента с минимальной разметкой\"}]}",
+      ].join(" "),
     },
     null,
     2
   );
   
   const text = await completeJson(
-    "Ты ассистент по подготовке материалов. При подготовке фрагмента не нужно преобразовывать его, делать пересказ и т.д. Нужно соединить страницы исходного текста так, чтобы мысль была доведена до логического завершения (до точки). КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО менять исходный текст. Только группировка по ID.",
+    "Ты ассистент по подготовке материалов для изучающего чтения. Верни только валидный JSON. Сохраняй содержание исходника, но можешь аккуратно восстановить читаемое форматирование, очевидную пунктуацию и минимальную семантическую разметку. Запрещены пересказ, сокращение, новые факты и изменение смысла.",
     prompt,
-    1000,
+    6000,
     provider
   );
 
@@ -192,24 +213,19 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
       if (!validIds.length) return;
       validIds.forEach((id: number) => used.add(id));
 
-      // Reconstruct original text from candidates
-      let originalText = validIds
+      const originalText = validIds
         .map((id: number) => candidates[id])
         .join("\n\n")
         .trim();
 
       const pageRange = extractPageRange(originalText);
+      const cleanedOriginalText = cleanChunkText(originalText);
+      const readableText = normalizeReadableText(chunk.readableText || chunk.formattedText, cleanedOriginalText);
 
-      // Clean "extra info" (page markers) from the text after range extraction
-      originalText = originalText
-        .replace(/^Страница\s+\d+\s*/gim, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-
-      if (!originalText) return;
+      if (!readableText) return;
 
       result.push({
-        text: originalText,
+        text: readableText,
         title: String(chunk.title || `Фрагмент ${result.length + 1}`),
         type: normalizeChunkType(chunk.type),
         skippable: Boolean(chunk.skippable),
@@ -225,9 +241,7 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
   candidates.forEach((text, id) => {
     if (used.has(id)) return;
     const pageRange = extractPageRange(text);
-    const cleanedText = text
-      .replace(/^Страница\s+\d+\s*/gim, "")
-      .trim();
+    const cleanedText = cleanChunkText(text);
 
     if (!cleanedText) return;
 
@@ -251,6 +265,44 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
       reason: chunk.reason || (isService ? "ИИ определил этот фрагмент как служебный." : ""),
     };
   });
+}
+
+function cleanChunkText(text: string) {
+  return String(text || "")
+    .replace(/\r/g, "")
+    .replace(/^Страница\s+\d+\s*/gim, "")
+    .replace(/([a-zA-Zа-яА-ЯёЁ])-\s*\n\s*([a-zA-Zа-яА-ЯёЁ])/g, "$1$2")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([([{])\s+/g, "$1")
+    .replace(/\s+([)\]}])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizeReadableText(value: any, fallback: string) {
+  const text = cleanChunkText(String(value || "").replace(/^```(?:markdown|md)?\s*/i, "").replace(/```$/i, ""));
+  if (!text) return fallback;
+
+  const fallbackWords = countMeaningfulWords(fallback);
+  const textWords = countMeaningfulWords(stripMarkup(text));
+  if (fallbackWords >= 40 && (textWords < fallbackWords * 0.65 || textWords > fallbackWords * 1.35)) {
+    return fallback;
+  }
+
+  return text;
+}
+
+function stripMarkup(text: string) {
+  return String(text || "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "");
+}
+
+function countMeaningfulWords(text: string) {
+  return String(text || "").split(/\s+/).filter((word) => /[a-zA-Zа-яА-ЯёЁ0-9]/.test(word)).length;
 }
 
 function detectCandidateType(text: string, index: number) {

@@ -1,6 +1,6 @@
-# Learn Helper MVP
+# Learn Helper
 
-Статический MVP сервиса для изучающего чтения с AI-помощником.
+Сервис для изучающего чтения с AI-помощником.
 
 ## Запуск без AI API
 
@@ -150,6 +150,25 @@ Backend использует безопасный режим запуска CLI:
 ```bash
 gemini --prompt "<prompt>" --output-format text --skip-trust
 ```
+
+Диагностика Gemini CLI доступна в интерфейсе: `Настройки API` -> `Диагностика Gemini CLI`.
+Она показывает:
+
+- используемый `GEMINI_BIN`;
+- модель из `GEMINI_MODEL`, которая реально отправляется в `gemini --model`, или пометку `CLI default`, если backend модель не задает;
+- лимиты известной модели Gemini Pro/Flash/Lite: input/output token limit;
+- команду, которой backend отправляет текст в CLI;
+- лимиты приложения для разных задач (`prepare`, `analyze`, `questions`, `evaluate`);
+- последние запуски CLI с кратким preview prompt;
+- быстрый статус без долгих обращений к модели.
+
+То же самое можно получить напрямую:
+
+```bash
+curl http://127.0.0.1:4173/api/gemini/diagnostics
+```
+
+Важно: `gemini --help` не отдает фактическую default-модель CLI. Чтобы helper показывал точную используемую модель и ее лимиты, задайте `GEMINI_MODEL`, например `gemini-2.5-pro`, `gemini-2.5-flash` или `gemini-2.5-flash-lite`.
 
 Можно задать путь и модель:
 

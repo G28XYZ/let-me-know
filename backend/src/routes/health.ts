@@ -7,7 +7,7 @@ import { parseJsonOrFallback } from "../utils/text";
 export const healthRouter = Router();
 
 healthRouter.get("/", async (req, res) => {
-  const provider = String(req.query.provider || config.defaultProvider) === "gemini-cli" ? "gemini-cli" : "openai-compatible";
+  const provider = normalizeProvider(String(req.query.provider || ""));
   
   if (provider === "gemini-cli") {
     try {
@@ -50,3 +50,10 @@ healthRouter.get("/", async (req, res) => {
     res.status(500).json({ ok: false, error: error.message });
   }
 });
+
+function normalizeProvider(value: string) {
+  const provider = String(value || config.defaultProvider || "").trim();
+  if (provider === "gemini-cli") return "gemini-cli";
+  if (provider === "openai-compatible") return "openai-compatible";
+  return config.defaultProvider === "gemini-cli" ? "gemini-cli" : "openai-compatible";
+}

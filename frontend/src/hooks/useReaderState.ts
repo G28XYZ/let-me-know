@@ -37,7 +37,7 @@ export function useReaderState() {
   const [assistantStatus, setAssistantStatus] = useState("Ожидает материал");
   
   const [apiEndpoint, setApiEndpoint] = useState("/api/analyze");
-  const [aiProvider, setAiProvider] = useState("geminit-cli");
+  const [aiProvider, setAiProvider] = useState("gemini-cli");
   const [geminiConsole, setGeminiConsole] = useState<string>("Gemini CLI console output...");
 
   const [ttsHighlight, setTtsHighlight] = useState(true);

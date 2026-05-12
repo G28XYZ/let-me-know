@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Learn Helper MVP",
+  title: "Learn Helper",
   description: "Сервис для изучающего чтения",
 };
 
@@ -16,7 +17,7 @@ export default function RootLayout({
       <head>
       </head>
       <body>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
+        <Script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" strategy="beforeInteractive" />
         {children}
       </body>
     </html>

@@ -32,6 +32,8 @@ export type ReaderPanelProps = {
   isAnalyzing: boolean;
   /** Заблокирована ли навигация из-за активной паузы повторения. */
   locked: boolean;
+  /** Индекс, за который нельзя перейти до завершения активной паузы. */
+  pendingNextIndex: number | null;
   /** Подготовлен ли исходный документ до конца. */
   sourceDone: boolean;
   /** Идет ли фоновая подготовка следующих фрагментов. */
@@ -84,6 +86,7 @@ export function ReaderPanel({
   busy,
   isAnalyzing,
   locked,
+  pendingNextIndex,
   sourceDone,
   preparingMore,
   assistantStatus,
@@ -105,8 +108,9 @@ export function ReaderPanel({
 }: ReaderPanelProps) {
   const currentMeta = chunkMeta[currentIndex];
   const atLastLoadedChunk = currentIndex >= chunks.length - 1;
-  const nextDisabled = busy || isAnalyzing || (atLastLoadedChunk && sourceDone) || locked || chunks.length === 0;
-  const previousDisabled = busy || isAnalyzing || currentIndex === 0 || locked || chunks.length === 0;
+  const blockedByReview = locked && (pendingNextIndex === null || currentIndex + 1 >= pendingNextIndex);
+  const nextDisabled = busy || isAnalyzing || (atLastLoadedChunk && sourceDone) || blockedByReview || chunks.length === 0;
+  const previousDisabled = busy || isAnalyzing || currentIndex === 0 || chunks.length === 0;
 
   return (
     <section className="flex flex-col border border-line rounded-lg bg-surface shadow-sm min-h-0">

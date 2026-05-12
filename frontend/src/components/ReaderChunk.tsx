@@ -1,5 +1,4 @@
-import type { RefObject } from "react";
-import { escapeHtml } from "@/lib/utils";
+import type { ReactNode, RefObject } from "react";
 import type { ChunkMeta } from "@/types/reader";
 
 /**
@@ -94,6 +93,7 @@ export function ReaderChunk({
   const activeIdx = ttsTimecodes.length > 0 && ttsAudioUrl
     ? ttsTimecodes.findIndex((timecode) => ttsCurrentTime >= timecode.start && ttsCurrentTime <= timecode.end)
     : -1;
+  const speechText = getPlainTextForSpeech(chunk);
 
   return (
     <section className={`m-4 border rounded-lg relative ${meta.skippable ? "bg-surface-strong" : "border-accent bg-[#fbfdfb]"}`}>
@@ -110,7 +110,7 @@ export function ReaderChunk({
             {meta.summary && <p className="mt-1 text-sm">{meta.summary}</p>}
           </div>
           <button
-            onClick={() => onPlayTts(chunk)}
+            onClick={() => onPlayTts(speechText)}
             disabled={isTtsLoading}
             className="flex-shrink-0 flex items-center justify-center p-2 border border-line rounded bg-surface hover:border-accent disabled:opacity-50 transition-colors"
             title="Озвучить фрагмент"
@@ -153,13 +153,102 @@ export function ReaderChunk({
             ))}
           </div>
         ) : (
-          <div className="text-lg leading-relaxed">
-            {escapeHtml(chunk).split(/\n{2,}/).map((paragraph, index) => (
-              <p key={index} dangerouslySetInnerHTML={{ __html: paragraph.replace(/\n/g, "<br>") }} className="mb-4" />
-            ))}
-          </div>
+          <div className="text-lg leading-relaxed">{renderReadableText(chunk)}</div>
         )}
       </div>
     </section>
   );
+}
+
+function renderReadableText(text: string) {
+  const nodes: ReactNode[] = [];
+  let paragraph: string[] = [];
+  let list: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const lines = paragraph;
+    nodes.push(
+      <p key={`p-${nodes.length}`} className="mb-4">
+        {lines.map((line, index) => (
+          <span key={index}>
+            {line}
+            {index < lines.length - 1 && <br />}
+          </span>
+        ))}
+      </p>
+    );
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!list.length || !listType) return;
+    const items = list;
+    const key = `${listType}-${nodes.length}`;
+    nodes.push(listType === "ul"
+      ? <ul key={key} className="mb-4 list-disc space-y-1 pl-6">{items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+      : <ol key={key} className="mb-4 list-decimal space-y-1 pl-6">{items.map((item, index) => <li key={index}>{item}</li>)}</ol>
+    );
+    list = [];
+    listType = null;
+  };
+
+  String(text || "").split("\n").forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      nodes.push(renderHeading(heading[1].length, heading[2].trim(), nodes.length));
+      return;
+    }
+
+    const bullet = line.match(/^[-*•]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      if (listType !== "ul") flushList();
+      listType = "ul";
+      list.push(bullet[1].trim());
+      return;
+    }
+
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      flushParagraph();
+      if (listType !== "ol") flushList();
+      listType = "ol";
+      list.push(numbered[1].trim());
+      return;
+    }
+
+    flushList();
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+  return nodes;
+}
+
+function renderHeading(level: number, text: string, index: number) {
+  if (level === 1) return <h2 key={`h-${index}`} className="mt-6 mb-3 text-2xl font-bold leading-snug first:mt-0">{text}</h2>;
+  if (level === 2) return <h3 key={`h-${index}`} className="mt-5 mb-2 text-xl font-bold leading-snug first:mt-0">{text}</h3>;
+  return <h4 key={`h-${index}`} className="mt-4 mb-2 text-lg font-bold leading-snug first:mt-0">{text}</h4>;
+}
+
+function getPlainTextForSpeech(text: string) {
+  return String(text || "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
