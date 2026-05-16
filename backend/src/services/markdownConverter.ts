@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
-import { copyFile, mkdir, readFile, readdir, rm } from "fs/promises";
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import { promisify } from "util";
 
@@ -40,7 +40,7 @@ async function convertPdfToMarkdown(sourcePath: string, workDir: string): Promis
   const pdf2mdResult = await tryPdf2Md(sourcePath, path.join(workDir, "pdf2md"));
   if (pdf2mdResult) return pdf2mdResult;
 
-  const textResult = await tryPdfToText(sourcePath, path.join(workDir, "pdftotext.txt"));
+  const textResult = await tryPdfToText(sourcePath, path.join(workDir, "pdftotext"));
   if (textResult) return textResult;
 
   throw new Error("PDF conversion failed. Install pdf2md or poppler-utils (pdftotext). OCR for scanned PDFs is not implemented yet.");
@@ -67,7 +67,12 @@ async function tryPdf2Md(sourcePath: string, projectDir: string): Promise<Markdo
   };
 }
 
-async function tryPdfToText(sourcePath: string, outputPath: string): Promise<MarkdownConversionResult | null> {
+async function tryPdfToText(sourcePath: string, outputDir: string): Promise<MarkdownConversionResult | null> {
+  await rm(outputDir, { recursive: true, force: true });
+  await mkdir(outputDir, { recursive: true });
+
+  const outputPath = path.join(outputDir, "source.txt");
+
   try {
     await execFileAsync("pdftotext", ["-layout", sourcePath, outputPath], { maxBuffer: 1024 * 1024 * 64 });
   } catch {
@@ -75,8 +80,32 @@ async function tryPdfToText(sourcePath: string, outputPath: string): Promise<Mar
   }
 
   const text = await readFile(outputPath, "utf8").catch(() => "");
-  const markdown = textToMarkdown(text, path.basename(sourcePath, path.extname(sourcePath)));
-  return markdown.trim() ? { markdown, converter: "pdftotext" } : null;
+  if (!text.trim()) return null;
+
+  const markdown = pdfTextToMarkdown(text, path.basename(sourcePath, path.extname(sourcePath)));
+
+  const pandocMarkdown = await tryPandocNormalizeMarkdown(
+    markdown,
+    path.join(outputDir, "pandoc-input.md"),
+    path.join(outputDir, "pandoc-output.md"),
+  );
+
+  return pandocMarkdown
+    ? { markdown: pandocMarkdown, converter: "pdftotext+pandoc" }
+    : { markdown, converter: "pdftotext" };
+}
+
+async function tryPandocNormalizeMarkdown(markdown: string, inputPath: string, outputPath: string) {
+  await writeFile(inputPath, markdown);
+
+  try {
+    await execFileAsync("pandoc", [inputPath, "-f", "markdown", "-t", "gfm", "-o", outputPath], { maxBuffer: 1024 * 1024 * 64 });
+  } catch {
+    return null;
+  }
+
+  const normalized = await readFile(outputPath, "utf8").catch(() => "");
+  return normalized.trim() ? normalized : null;
 }
 
 export async function copyMarkdownAssets(assetsDir: string | undefined, destinationDir: string) {
@@ -129,4 +158,132 @@ function textToMarkdown(text: string, title: string) {
     .join("\n\n");
 
   return `# ${title}\n\n${normalized}\n`;
+}
+
+function pdfTextToMarkdown(text: string, title: string) {
+  const pages = text.replace(/\r\n?/g, "\n").split("\f");
+  const markdownLines: string[] = [`# ${title}`, ""];
+  let paragraph: string[] = [];
+  let pendingChapterNumber = "";
+  let currentHeading = "";
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    markdownLines.push(joinParagraphLines(paragraph), "");
+    paragraph = [];
+  };
+
+  const addHeading = (level: number, value: string) => {
+    const heading = cleanPdfHeading(value);
+    if (!heading || heading === currentHeading) return;
+    flushParagraph();
+    currentHeading = heading;
+    markdownLines.push(`${"#".repeat(level)} ${heading}`, "");
+  };
+
+  for (const page of pages) {
+    const rawLines = page.split("\n");
+    const meaningfulLines = rawLines
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (meaningfulLines.length === 0 || isTableOfContentsPage(meaningfulLines)) continue;
+
+    let seenContentOnPage = false;
+
+    for (const rawLine of rawLines) {
+      const line = normalizePdfLine(rawLine);
+      if (!line) {
+        flushParagraph();
+        continue;
+      }
+
+      if (isStandalonePageNumber(line)) continue;
+      if (!seenContentOnPage && line === currentHeading) continue;
+
+      seenContentOnPage = true;
+
+      const chapterNumber = line.match(/^Глава\s+(\d+)$/i);
+      if (chapterNumber) {
+        pendingChapterNumber = chapterNumber[1];
+        flushParagraph();
+        continue;
+      }
+
+      if (pendingChapterNumber) {
+        addHeading(1, `Глава ${pendingChapterNumber}. ${line}`);
+        pendingChapterNumber = "";
+        continue;
+      }
+
+      const sectionHeading = line.match(/^(\d+(?:\.\d+)+)\.\s+(.+)$/);
+      if (sectionHeading && !looksLikeListItem(line)) {
+        addHeading(2, line);
+        continue;
+      }
+
+      if (line === "Контрольные вопросы и задания") {
+        addHeading(2, line);
+        continue;
+      }
+
+      if (isStandalonePdfHeading(line)) {
+        addHeading(1, line);
+        continue;
+      }
+
+      paragraph.push(line);
+    }
+
+    flushParagraph();
+  }
+
+  return `${markdownLines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
+}
+
+function normalizePdfLine(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function cleanPdfHeading(value: string) {
+  return value
+    .replace(/\s+\d+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function joinParagraphLines(lines: string[]) {
+  return lines.reduce((result, line) => {
+    if (!result) return line;
+    if (/[A-Za-zА-Яа-яЁё]-$/.test(result) && /^[a-zа-яё]/.test(line)) {
+      return `${result.slice(0, -1)}${line}`;
+    }
+    return `${result} ${line}`;
+  }, "");
+}
+
+function isStandalonePageNumber(line: string) {
+  return /^\d+$/.test(line);
+}
+
+function isTableOfContentsPage(lines: string[]) {
+  const first = lines[0]?.toLowerCase() || "";
+  return first === "оглавление";
+}
+
+function isStandalonePdfHeading(line: string) {
+  return [
+    "Предисловие автора",
+    "Введение",
+    "Заключение",
+    "Рекомендуемые источники",
+    "Предметный указатель",
+  ].includes(line);
+}
+
+function looksLikeListItem(line: string) {
+  return /^\d+\.\s/.test(line);
 }

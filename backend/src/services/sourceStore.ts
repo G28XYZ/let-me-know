@@ -34,7 +34,7 @@ const sourceRoots: SourceRootInfo[] = [
   },
 ];
 
-const allowedExtensions = new Set([".pdf", ".txt", ".md"]);
+const allowedExtensions = new Set([".pdf", ".txt", ".md", ".markdown"]);
 
 export async function listSourceFiles(): Promise<SourceFile[]> {
   await mkdir(sourceRoots[1].dir, { recursive: true });
@@ -95,7 +95,7 @@ export async function saveSourceFile(fileName: string, content: Buffer): Promise
   const safeName = sanitizeFileName(fileName);
   const extension = path.extname(safeName).toLowerCase();
   if (!allowedExtensions.has(extension)) {
-    throw new Error("Only .pdf, .txt and .md sources are supported.");
+    throw new Error("Only .pdf, .txt, .md and .markdown sources are supported.");
   }
 
   await mkdir(libraryRoot.dir, { recursive: true });

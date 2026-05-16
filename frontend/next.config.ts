@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  allowedDevOrigins: ["5.128.164.38"],
+  allowedDevOrigins: ["127.0.0.1", "localhost", "5.128.164.38"],
   async rewrites() {
     return [
       {

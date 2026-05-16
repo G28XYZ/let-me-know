@@ -1,143 +1,3 @@
-import type { MethodType } from "@/lib/methods";
-
-/**
- * Обертка над `fetch`, которая добавляет авторизационные заголовки.
- * Компоненты получают ее через props, чтобы не знать, где хранится токен.
- */
-export type FetchWithAuth = (url: string, options?: RequestInit) => Promise<Response>;
-
-/**
- * Метаданные одного подготовленного фрагмента документа.
- */
-export type ChunkMeta = {
-  /** Тип фрагмента: учебный материал, оглавление, введение или другой backend-тип. */
-  type: string;
-  /** Можно ли пропустить фрагмент без учебной паузы. */
-  skippable: boolean;
-  /** Причина, по которой фрагмент считается служебным или пропускаемым. */
-  reason: string;
-  /** Короткое название фрагмента для заголовка ридера. */
-  title: string;
-  /** Краткое описание темы фрагмента. */
-  summary: string;
-  /** Ключевые темы и концепции учебного блока. */
-  concepts?: string[];
-  /** Первая страница исходного документа, к которой относится фрагмент. */
-  pageStart: number | null;
-  /** Последняя страница исходного документа, к которой относится фрагмент. */
-  pageEnd: number | null;
-};
-
-/**
- * Один тестовый вопрос для проверки понимания.
- */
-export type QuizQuestion = {
-  /** Текст вопроса. */
-  question: string;
-  /** Варианты ответа, среди которых есть `correctAnswer`. */
-  options: string[];
-  /** Правильный ответ. Должен совпадать с одним из элементов `options`. */
-  correctAnswer: string;
-};
-
-/**
- * Результат AI-анализа фрагмента, который показывается в панели помощника
- * и используется как источник заметок.
- */
-export type AnalysisItem = {
-  /** Короткое резюме текущего фрагмента. */
-  summary: string;
-  /** Список моментов, на которые стоит обратить внимание. */
-  attention: string[];
-  /** Ключевые слова и термины фрагмента. */
-  keywords: string[];
-  /** Открытый вопрос для самопроверки. */
-  question: string;
-  /** Учебное задание по выбранному методу. */
-  task: string;
-  /** Текст заметки, который попадает в конспект. */
-  note: string;
-  /** Рекомендация, что делать дальше при чтении. */
-  recommendation: string;
-  /** Тестовые вопросы, если AI их сформировал. */
-  quiz: QuizQuestion[];
-  /** Практическое задание, если оно применимо к материалу. */
-  practicalTask: string;
-  /** Индекс фрагмента, для которого создан анализ. */
-  chunkIndex: number;
-  /** Метод обучения, с которым был создан анализ. */
-  method: MethodType;
-  /** Время создания анализа в UI-формате. */
-  createdAt: string;
-};
-
-/**
- * Одна заметка конспекта.
- */
-export type NoteItem = {
-  /** Индекс фрагмента, из которого получена заметка. */
-  chunkIndex: number;
-  /** Название метода обучения, использованного при создании заметки. */
-  method: string;
-  /** Текст заметки. */
-  text: string;
-};
-
-/**
- * Набор вопросов для паузы повторения.
- */
-export type QuestionSet = {
-  /** Открытый вопрос для ответа своими словами. */
-  question: string;
-  /** Тестовые вопросы с вариантами ответа. */
-  quiz: QuizQuestion[];
-  /** Практическое задание по пройденному сегменту. */
-  practicalTask: string;
-};
-
-export type SourceRange = {
-  chunkStart: number;
-  chunkEnd: number;
-  pageStart: number | null;
-  pageEnd: number | null;
-};
-
-export type StoredQuestionSet = QuestionSet & {
-  id: string;
-  method: string;
-  createdAt: string;
-  sourceRange: SourceRange;
-};
-
-export type StoredProgressDocument = {
-  id: string;
-  fileName: string;
-  fileType: string;
-  totalPages: number;
-  method: string;
-  currentIndex: number;
-  lastPauseIndex: number;
-  sourceCursor: number;
-  sourceDone: boolean;
-  chunks: Array<ChunkMeta & { index: number }>;
-  analyses: Array<AnalysisItem & { sourceRange: SourceRange }>;
-  questionSets: StoredQuestionSet[];
-};
-
-export type StoredProgressDocumentSummary = {
-  id: string;
-  fileName: string;
-  fileType: string;
-  totalPages: number;
-  updatedAt: string;
-  method: string;
-  currentIndex: number;
-  progressPercent: number;
-  chunksCount: number;
-  analysesCount: number;
-  questionSetsCount: number;
-};
-
 export type SourceFileSummary = {
   id: string;
   name: string;
@@ -155,4 +15,16 @@ export type SourceFilesResponse = {
 export type BookGenerationResponse = {
   success: boolean;
   bookId: string;
+  cached?: boolean;
+};
+
+export type BookSummaryItem = {
+  id: string;
+  title: string;
+  href: string;
+  level: number;
+};
+
+export type BookSummaryResponse = {
+  items: BookSummaryItem[];
 };

@@ -6,38 +6,38 @@ import type { ChangeEvent } from "react";
 export type AppHeaderProps = {
   /** Блокирует загрузку файла и смену метода во время долгих операций. */
   busy: boolean;
+  /** Открывает библиотеку уже загруженных документов. */
+  onLibraryOpen: () => void;
+  /** Принудительно пересобирает открытую книгу. */
+  onRegenerateBook: () => void;
   /** Обработчик выбора файла пользователем. */
   onFileSelect: (event: ChangeEvent<HTMLInputElement>) => void;
-  /** Обработчик генерации mdBook. */
-  onGenerateBook?: () => void;
-  /** Есть ли выбранный файл для генерации. */
-  hasFile?: boolean;
+  /** Есть ли сейчас открытая книга. */
+  hasActiveBook: boolean;
 };
 
 /**
- * Верхняя панель приложения: название, загрузка файла и запуск генерации книги.
+ * Верхняя панель приложения: название и загрузка исходника.
  *
- * Компонент не хранит бизнес-состояние и не загружает файл сам: он только
- * передает события родителю через props.
+ * После загрузки родитель сам запускает конвертацию PDF/Markdown/TXT в mdBook.
  */
-export function AppHeader({ busy, onFileSelect, onGenerateBook, hasFile }: AppHeaderProps) {
+export function AppHeader({ busy, onLibraryOpen, onRegenerateBook, onFileSelect, hasActiveBook }: AppHeaderProps) {
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between p-4 border-b border-line bg-[#f6f7f3]/90 backdrop-blur-md">
-      <div>
-        <h1 className="text-2xl font-bold m-0">Learn Helper</h1>
+    <header className="app-header sticky top-0 z-10 flex items-center justify-between px-[15px]">
+      <div className="min-w-0">
+        <h1 className="app-title m-0 truncate">Learn Helper</h1>
       </div>
-      <div className="flex flex-col sm:flex-row gap-3">
-        {hasFile && onGenerateBook && (
-          <button
-            onClick={onGenerateBook}
-            disabled={busy}
-            className="h-10 px-4 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50"
-          >
-            Сгенерировать mdBook
+      <div className="flex items-center gap-2">
+        <button type="button" className="app-button px-3 text-sm" onClick={onLibraryOpen} disabled={busy}>
+          Библиотека
+        </button>
+        {hasActiveBook && (
+          <button type="button" className="app-button px-3 text-sm" onClick={onRegenerateBook} disabled={busy}>
+            Пересобрать
           </button>
         )}
-        <label className="flex items-center justify-center h-10 px-4 border border-line rounded-lg bg-surface cursor-pointer hover:border-accent">
-          <input type="file" accept=".txt,.pdf,text/plain,application/pdf" className="hidden" onChange={onFileSelect} disabled={busy} />
+        <label className="app-button flex cursor-pointer items-center justify-center px-3 text-sm">
+          <input type="file" accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf" className="hidden" onChange={onFileSelect} disabled={busy} />
           Загрузить файл
         </label>
       </div>

@@ -59,3 +59,6 @@ venv.bak/
 logs/
 *.log
 test_project/
+books/
+sources/
+progress-db.json

@@ -22,14 +22,14 @@ export type AuthScreenProps = {
  */
 export function AuthScreen({ passwordInput, authError, onPasswordChange, onLogin }: AuthScreenProps) {
   return (
-    <div className="flex h-screen items-center justify-center bg-[#f6f7f3]">
-      <div className="p-8 bg-surface border border-line rounded-lg shadow-xl text-center w-full max-w-sm">
-        <h1 className="text-2xl font-bold mb-6 text-text">Learn Helper</h1>
+    <div className="flex h-screen items-center justify-center bg-bg p-6">
+      <div className="app-panel w-full max-w-sm p-7 text-center shadow-custom">
+        <h1 className="mb-6 text-[2rem] font-light text-text">Learn Helper</h1>
         <form onSubmit={onLogin} className="flex flex-col gap-4">
           <input
             type="password"
             placeholder="Введите пароль"
-            className="p-3 border border-line rounded-lg text-text"
+            className="app-input rounded-[3px] px-3 py-2.5 text-sm outline-none focus:border-accent"
             value={passwordInput}
             onChange={(event) => onPasswordChange(event.target.value)}
             autoFocus
@@ -37,7 +37,7 @@ export function AuthScreen({ passwordInput, authError, onPasswordChange, onLogin
           {authError && <p className="text-danger text-sm">{authError}</p>}
           <button
             type="submit"
-            className="px-4 py-3 bg-accent text-white font-bold rounded-lg hover:bg-accent-strong transition-colors"
+            className="app-button flex h-10 items-center justify-center px-4 text-sm"
           >
             Войти
           </button>

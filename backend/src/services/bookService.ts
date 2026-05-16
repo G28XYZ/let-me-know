@@ -11,10 +11,19 @@ type BookChapter = {
   title: string;
   fileName: string;
   content: string;
+  level: number;
+};
+
+export type BookSummaryItem = {
+  id: string;
+  title: string;
+  href: string;
+  level: number;
 };
 
 export class BookService {
-  private static booksDir = path.resolve(process.cwd(), "data", "books");
+  private static backendRoot = resolveBackendRoot();
+  private static booksDir = path.resolve(BookService.backendRoot, "data", "books");
 
   static async init() {
     if (!existsSync(this.booksDir)) {
@@ -23,7 +32,7 @@ export class BookService {
   }
 
   static async generateBook(sourcePath: string, bookId: string, title = "Generated Book"): Promise<string> {
-    const bookPath = path.join(this.booksDir, bookId);
+    const bookPath = this.getBookRoot(bookId);
     if (existsSync(bookPath)) {
       await fs.rm(bookPath, { recursive: true, force: true });
     }
@@ -49,34 +58,78 @@ export class BookService {
   }
 
   static getBookPath(bookId: string) {
-      return path.join(this.booksDir, bookId, "book");
+    return path.join(this.getBookRoot(bookId), "book");
   }
+
+  static hasGeneratedBook(bookId: string) {
+    return existsSync(path.join(this.getBookPath(bookId), "index.html"));
+  }
+
+  static async getBookSummary(bookId: string): Promise<BookSummaryItem[]> {
+    const summaryPath = path.join(this.getBookRoot(bookId), "src", "SUMMARY.md");
+    const summary = await fs.readFile(summaryPath, "utf8");
+
+    return summary
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map(parseSummaryLine)
+      .filter((item): item is BookSummaryItem => Boolean(item));
+  }
+
+  private static getBookRoot(bookId: string) {
+    const bookRoot = path.resolve(this.booksDir, bookId);
+    if (!bookRoot.startsWith(`${this.booksDir}${path.sep}`) && bookRoot !== this.booksDir) {
+      throw new Error("Invalid book id.");
+    }
+    return bookRoot;
+  }
+}
+
+function parseSummaryLine(line: string): BookSummaryItem | null {
+  const match = line.match(/^(\s*)-\s+\[([^\]]+)]\(([^)]+)\)\s*$/);
+  if (!match) return null;
+
+  const level = Math.floor(match[1].length / 2) + 1;
+  const href = match[3].replace(/^\.\//, "");
+  const id = href.replace(/\.md(?:#.*)?$/i, "").replace(/[^a-z0-9а-яё_-]+/gi, "-");
+
+  return {
+    id,
+    title: match[2].trim(),
+    href,
+    level,
+  };
 }
 
 function splitIntoChapters(markdown: string, fallbackTitle: string): BookChapter[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const chapters: Array<{ title: string; lines: string[] }> = [];
-  let current: { title: string; lines: string[] } | null = null;
+  const chapters: Array<{ title: string; lines: string[]; level: number }> = [];
+  let current: { title: string; lines: string[]; level: number } | null = null;
 
   for (const line of lines) {
-    const heading = line.match(/^#{1,2}\s+(.+?)\s*$/);
+    const heading = line.match(/^(#{1,3})\s+(.+?)\s*$/);
     if (heading) {
       if (current && current.lines.some((item) => item.trim())) chapters.push(current);
-      current = { title: cleanTitle(heading[1]) || fallbackTitle, lines: [line] };
+      current = {
+        title: cleanTitle(heading[2]) || fallbackTitle,
+        lines: [line],
+        level: Math.min(3, heading[1].length),
+      };
       continue;
     }
 
-    if (!current) current = { title: fallbackTitle, lines: [`# ${fallbackTitle}`, ""] };
+    if (!current) current = { title: fallbackTitle, lines: [`# ${fallbackTitle}`, ""], level: 1 };
     current.lines.push(line);
   }
 
   if (current && current.lines.some((line) => line.trim())) chapters.push(current);
 
-  const normalized = chapters.length > 0 ? chapters : [{ title: fallbackTitle, lines: [`# ${fallbackTitle}`, "", markdown] }];
+  const normalized = chapters.length > 0 ? chapters : [{ title: fallbackTitle, lines: [`# ${fallbackTitle}`, "", markdown], level: 1 }];
   return normalized.map((chapter, index) => ({
     title: chapter.title,
     fileName: `${String(index + 1).padStart(2, "0")}-${slugify(chapter.title) || "chapter"}.md`,
     content: `${chapter.lines.join("\n").trim()}\n`,
+    level: chapter.level,
   }));
 }
 
@@ -84,7 +137,7 @@ function renderSummary(chapters: BookChapter[]) {
   return [
     "# Summary",
     "",
-    ...chapters.map((chapter) => `- [${escapeSummaryTitle(chapter.title)}](./${chapter.fileName})`),
+    ...chapters.map((chapter) => `${"  ".repeat(Math.max(0, chapter.level - 1))}- [${escapeSummaryTitle(chapter.title)}](./${chapter.fileName})`),
     "",
   ].join("\n");
 }
@@ -103,4 +156,19 @@ function slugify(value: string) {
 
 function escapeSummaryTitle(value: string) {
   return value.replace(/[[\]]/g, "");
+}
+
+function resolveBackendRoot() {
+  const candidates = [
+    process.cwd(),
+    path.resolve(process.cwd(), "backend"),
+    path.resolve(__dirname, "..", ".."),
+    path.resolve(__dirname, "..", "..", "..", "backend"),
+  ];
+
+  const found = candidates.find((candidate) => (
+    path.basename(candidate) === "backend" && existsSync(path.join(candidate, "package.json"))
+  ));
+
+  return found || path.resolve(process.cwd(), "backend");
 }

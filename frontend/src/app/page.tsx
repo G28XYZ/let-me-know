@@ -3,18 +3,23 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AuthScreen } from "@/components/AuthScreen";
+import { BookLibraryModal } from "@/components/BookLibraryModal";
 import { BusyOverlay } from "@/components/BusyOverlay";
-import { SourcePanel } from "@/components/SourcePanel";
-import type { BookGenerationResponse, SourceFileSummary, SourceFilesResponse } from "@/types/reader";
+import { StudyAssistantWidget } from "@/components/StudyAssistantWidget";
+import type { BookGenerationResponse, SourceFilesResponse, SourceFileSummary } from "@/types/reader";
+
+const mdBookThemes = ["light", "rust", "coal", "navy", "ayu"] as const;
+type MdBookTheme = (typeof mdBookThemes)[number];
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState("");
-  const [sourceFiles, setSourceFiles] = useState<SourceFileSummary[]>([]);
-  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
-  const [activeFileName, setActiveFileName] = useState("");
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
+  const [activeSource, setActiveSource] = useState<SourceFileSummary | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [sourceFiles, setSourceFiles] = useState<SourceFileSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyTitle, setBusyTitle] = useState("");
   const [busyText, setBusyText] = useState("");
@@ -25,12 +30,94 @@ export default function Home() {
     });
   }, []);
 
+  useEffect(() => {
+    const applyMdBookTheme = () => {
+      const savedTheme = localStorage.getItem("mdbook-theme");
+      const theme: MdBookTheme = mdBookThemes.includes(savedTheme as MdBookTheme)
+        ? savedTheme as MdBookTheme
+        : "light";
+
+      document.documentElement.classList.remove(...mdBookThemes);
+      document.documentElement.classList.add(theme);
+    };
+
+    applyMdBookTheme();
+    window.addEventListener("storage", applyMdBookTheme);
+    const themeSync = window.setInterval(applyMdBookTheme, 500);
+
+    return () => {
+      window.removeEventListener("storage", applyMdBookTheme);
+      window.clearInterval(themeSync);
+    };
+  }, []);
+
   const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem("auth_token");
     const headers = new Headers(options.headers);
     if (token) headers.set("Authorization", `Bearer ${token}`);
     return fetch(url, { ...options, headers });
   }, []);
+
+  const loadSourceFiles = useCallback(async () => {
+    setLibraryLoading(true);
+
+    try {
+      const response = await fetchWithAuth("/api/sources");
+      if (!response.ok) throw new Error("Ошибка загрузки библиотеки");
+
+      const data = await response.json() as SourceFilesResponse;
+      setSourceFiles(data.sources || []);
+    } catch {
+      setSourceFiles([]);
+    } finally {
+      setLibraryLoading(false);
+    }
+  }, [fetchWithAuth]);
+
+  const handleLibraryOpen = useCallback(() => {
+    setLibraryOpen(true);
+    void loadSourceFiles();
+  }, [loadSourceFiles]);
+
+  const openBook = useCallback(async (source: SourceFileSummary) => {
+    setBusyTitle("Открываем книгу");
+    setBusyText(`Проверяем собранный mdBook для ${source.name}...`);
+
+    const response = await fetchWithAuth("/api/books/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceId: source.id }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: "Ошибка при открытии книги" }));
+      throw new Error(error.error || "Ошибка при открытии книги");
+    }
+
+    const data = await response.json() as BookGenerationResponse;
+    setActiveSource(source);
+    setActiveBookId(data.bookId);
+  }, [fetchWithAuth]);
+
+  const regenerateBook = useCallback(async (source: SourceFileSummary) => {
+    setBusyTitle("Пересборка mdBook");
+    setBusyText(`Заново конвертируем и собираем ${source.name}...`);
+
+    const response = await fetchWithAuth("/api/books/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceId: source.id }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: "Ошибка при пересборке" }));
+      throw new Error(error.error || "Ошибка при пересборке");
+    }
+
+    const data = await response.json() as BookGenerationResponse;
+    setActiveSource(source);
+    setActiveBookId(data.bookId);
+  }, [fetchWithAuth]);
 
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
@@ -54,17 +141,6 @@ export default function Home() {
     }
   };
 
-  const loadSourceFiles = useCallback(async () => {
-    try {
-      const response = await fetchWithAuth("/api/sources");
-      if (!response.ok) return;
-      const data = await response.json() as SourceFilesResponse;
-      setSourceFiles(data.sources || []);
-    } catch {
-      setSourceFiles([]);
-    }
-  }, [fetchWithAuth]);
-
   const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -85,75 +161,54 @@ export default function Home() {
 
       if (response.ok) {
         const data = await response.json() as { source: SourceFileSummary };
-        setActiveSourceId(data.source.id);
-        setActiveFileName(data.source.name);
         setActiveBookId(null);
-        await loadSourceFiles();
+        setActiveSource(null);
+        setSourceFiles((previousSources) => [
+          data.source,
+          ...previousSources.filter((source) => source.id !== data.source.id),
+        ]);
+        await regenerateBook(data.source);
+      } else {
+        const error = await response.json().catch(() => ({ error: "Ошибка при загрузке" }));
+        alert("Ошибка: " + error.error);
       }
-    } catch {
-      alert("Ошибка при загрузке");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Ошибка при загрузке");
     } finally {
       setBusy(false);
       event.target.value = "";
     }
   };
 
-  const handleGenerateBook = async () => {
-    if (!activeSourceId) return;
-
+  const handleLibrarySourceOpen = async (source: SourceFileSummary) => {
+    setLibraryOpen(false);
     setBusy(true);
-    setBusyTitle("Генерация mdBook");
-    setBusyText("Конвертируем исходник в Markdown и собираем книгу...");
 
     try {
-      const response = await fetchWithAuth("/api/books/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceId: activeSourceId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json() as BookGenerationResponse;
-        setActiveBookId(data.bookId);
-      } else {
-          const err = await response.json();
-          alert("Ошибка: " + err.error);
-      }
-    } catch {
-      alert("Ошибка при генерации");
+      setActiveBookId(null);
+      setActiveSource(null);
+      await openBook(source);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Ошибка при открытии книги");
     } finally {
       setBusy(false);
     }
   };
 
-  const handleSourceOpen = async (source: SourceFileSummary) => {
-      setActiveSourceId(source.id);
-      setActiveFileName(source.name);
-      setActiveBookId(null);
-  };
+  const handleRegenerateActiveBook = async () => {
+    if (!activeSource) return;
 
-  const handleSourceDelete = async (source: SourceFileSummary) => {
+    setBusy(true);
+
     try {
-      const response = await fetchWithAuth(`/api/sources/${encodeURIComponent(source.id)}`, { method: "DELETE" });
-      if (!response.ok) return;
-      if (activeSourceId === source.id) {
-        setActiveSourceId(null);
-        setActiveFileName("");
-        setActiveBookId(null);
-      }
-      await loadSourceFiles();
-    } catch {
-      alert("Ошибка при удалении");
+      setActiveBookId(null);
+      await regenerateBook(activeSource);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Ошибка при пересборке книги");
+    } finally {
+      setBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      queueMicrotask(() => {
-        void loadSourceFiles();
-      });
-    }
-  }, [isAuthenticated, loadSourceFiles]);
 
   if (isAuthenticated === null) return null;
   if (!isAuthenticated) {
@@ -173,38 +228,37 @@ export default function Home() {
 
       <AppHeader
         busy={busy}
+        onLibraryOpen={handleLibraryOpen}
+        onRegenerateBook={handleRegenerateActiveBook}
         onFileSelect={handleFileSelect}
-        onGenerateBook={handleGenerateBook}
-        hasFile={!!activeSourceId}
+        hasActiveBook={!!activeSource && !!activeBookId}
       />
 
-      <main className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5 p-4 h-[calc(100vh-73px)] overflow-hidden">
-        <SourcePanel
-          sourceFiles={sourceFiles}
-          fileName={activeFileName}
-          activeSourceId={activeSourceId}
-          activeBookId={activeBookId}
-          onSourceOpen={handleSourceOpen}
-          onSourcesRefresh={loadSourceFiles}
-          onSourceDelete={handleSourceDelete}
-        />
+      <BookLibraryModal
+        open={libraryOpen}
+        sources={sourceFiles}
+        loading={libraryLoading}
+        busy={busy}
+        onClose={() => setLibraryOpen(false)}
+        onRefresh={loadSourceFiles}
+        onOpenSource={handleLibrarySourceOpen}
+      />
 
-        <div className="bg-surface border border-line rounded-xl overflow-hidden flex flex-col">
-          {activeBookId ? (
-            <iframe
-              src={`/api/books/view/${encodeURIComponent(activeBookId)}/index.html`}
-              className="w-full h-full border-none"
-              title="mdBook View"
-            />
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-secondary">
-              {activeSourceId
-                ? "Нажмите «Сгенерировать mdBook» для начала чтения"
-                : "Выберите или загрузите файл"}
-            </div>
-          )}
-        </div>
+      <main className="h-[calc(100vh-var(--menu-bar-height))] overflow-hidden bg-bg">
+        {activeBookId ? (
+          <iframe
+            src={`/api/books/view/${encodeURIComponent(activeBookId)}/index.html`}
+            className="h-full w-full border-none"
+            title="mdBook"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center px-6 text-center text-muted">
+            <p className="max-w-md text-sm">Загрузите PDF, Markdown или TXT, чтобы собрать mdBook.</p>
+          </div>
+        )}
       </main>
+
+      <StudyAssistantWidget activeBookId={activeBookId} fetchWithAuth={fetchWithAuth} />
     </>
   );
 }
