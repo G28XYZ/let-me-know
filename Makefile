@@ -1,4 +1,4 @@
-.PHONY: all install dev dev-backend dev-frontend dev-tts build clean deploy update restart deploy-tts update-tts restart-tts
+.PHONY: all install dev dev-backend dev-frontend dev-tts prod prod-backend prod-frontend build clean deploy update restart deploy-tts update-tts restart-tts
 
 all: install dev
 
@@ -27,6 +27,19 @@ dev:
 	@$(MAKE) -j 3 dev-backend \
 	dev-frontend
 # 	dev-tts
+
+prod-backend:
+	@echo "Starting backend in production mode..."
+	cd backend && npm run build && npm start
+
+prod-frontend:
+	@echo "Starting frontend in production mode..."
+	cd frontend && npm run build && npm start
+
+prod:
+	@echo "Starting backend and frontend in production mode..."
+	@$(MAKE) -j 2 prod-backend \
+	prod-frontend
 
 TTS_SERVER ?=
 SERVER ?=

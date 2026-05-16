@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
   allowedDevOrigins: ["5.128.164.38"],
   async rewrites() {
     return [

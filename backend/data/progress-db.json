@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "documents": {
+    "fnv1a-495dae90": {
+      "id": "fnv1a-495dae90",
+      "fileName": "sql_primer.pdf",
+      "fileType": "application/pdf",
+      "totalPages": 337,
+      "createdAt": "2026-05-15T19:19:50.656Z",
+      "updatedAt": "2026-05-15T19:19:51.064Z",
+      "method": "sq3r",
+      "currentIndex": 0,
+      "lastPauseIndex": 0,
+      "sourceCursor": 337,
+      "sourceDone": true,
+      "chunks": [
+        {
+          "index": 0,
+          "title": "Материал до паузы 2",
+          "type": "study",
+          "skippable": false,
+          "summary": "Страницы 3-330",
+          "concepts": [],
+          "pageStart": 3,
+          "pageEnd": 330
+        }
+      ],
+      "analyses": [],
+      "questionSets": []
+    }
+  }
+}

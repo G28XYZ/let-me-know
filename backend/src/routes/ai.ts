@@ -174,14 +174,18 @@ async function prepareBatch(batch: string[], payload: PreparePayload, globalStar
         text,
       })),
       task: [
-        "Сгруппируй id кандидатов в НЕ БОЛЕЕ targetChunks логически завершенных фрагментов.",
-        "Для каждого фрагмента верни readableText: тот же материал в удобном для чтения виде.",
-        "В readableText можно только восстанавливать абзацы, заголовки, маркированные/нумерованные списки и очевидно недостающую пунктуацию.",
-        "Нельзя сокращать, пересказывать, переводить, добавлять новые факты или менять смысл. Если пунктуация неочевидна, оставь исходную формулировку.",
-        "Минимальная разметка допустима только текстовая: пустые строки между абзацами, строки '# Заголовок', '- пункт', '1. пункт'.",
-        "Удали явные артефакты извлечения PDF: номера страниц, колонтитулы, склейки переносов слов.",
-        "Оглавление и введение помечай skippable=true. Если кандидатов мало, верни меньше фрагментов.",
-        "Верни строго JSON: {\"overview\":\"string\",\"chunks\":[{\"candidateIds\":[number],\"title\":\"название темы\",\"type\":\"toc|introduction|study\",\"skippable\":boolean,\"summary\":\"краткая тема\",\"readableText\":\"полный текст фрагмента с минимальной разметкой\"}]}",
+        "Сначала определи, на какие смысловые учебные темы можно разделить материал.",
+        "Для каждой темы создай карточку учебного блока: title, summary, concepts и candidateIds.",
+        "targetChunks - это только ориентир интерфейса, не дели цельную тему искусственно ради этого числа.",
+        "candidateIds - это единственный источник текста блока. Не пересказывай и не возвращай сам текст.",
+        "Границы блока должны проходить только между завершенными смысловыми частями. Нельзя заканчивать блок посреди предложения, абзаца, перечисления или примера.",
+        "Не ограничивай блоки по времени чтения. Большой объем допустим, если тема цельная.",
+        "После каждого блока ученик будет отвечать на вопросы по исходному тексту этого блока.",
+        "Служебный материал не включай в учебные блоки: титульные листы, оглавление, содержание, выходные данные, пустые страницы, повторяющиеся колонтитулы.",
+        "Не создавай отдельные skippable-фрагменты для служебной информации: просто исключи ее candidateIds из chunks.",
+        "candidateIds внутри блока должны быть отсортированы и, как правило, идти подряд. Не пропускай учебный candidate внутри темы.",
+        "Если учебного материала мало, верни один блок. Если весь материал - одна цельная тема, верни один блок.",
+        "Верни строго JSON: {\"overview\":\"string\",\"chunks\":[{\"candidateIds\":[number],\"title\":\"название темы\",\"type\":\"study\",\"skippable\":false,\"summary\":\"что нужно понять перед вопросами\",\"concepts\":[\"ключевая концепция\"]}]}",
       ].join(" "),
     },
     null,
@@ -189,7 +193,7 @@ async function prepareBatch(batch: string[], payload: PreparePayload, globalStar
   );
   
   const text = await completeJson(
-    "Ты ассистент по подготовке материалов для изучающего чтения. Верни только валидный JSON. Сохраняй содержание исходника, но можешь аккуратно восстановить читаемое форматирование, очевидную пунктуацию и минимальную семантическую разметку. Запрещены пересказ, сокращение, новые факты и изменение смысла.",
+    "Ты ассистент по подготовке материалов для изучающего чтения. Твоя задача - создать карточки смысловых учебных блоков и указать candidateIds для каждого блока. Не возвращай текст блока, только план разбиения. Верни только валидный JSON.",
     prompt,
     6000,
     provider
@@ -219,8 +223,7 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
         .trim();
 
       const pageRange = extractPageRange(originalText);
-      const cleanedOriginalText = cleanChunkText(originalText);
-      const readableText = normalizeReadableText(chunk.readableText || chunk.formattedText, cleanedOriginalText);
+      const readableText = formatSourceTextBlock(cleanChunkText(originalText), chunk.title);
 
       if (!readableText) return;
 
@@ -231,17 +234,20 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
         skippable: Boolean(chunk.skippable),
         reason: String(chunk.reason || ""),
         summary: String(chunk.summary || ""),
+        concepts: asArray(chunk.concepts || chunk.keyConcepts || chunk.keywords),
         pageStart: pageRange?.start || null,
         pageEnd: pageRange?.end || null,
       });
     });
   }
 
-  // Handle leftovers
+  // Handle study leftovers that were not assigned to any card. Service candidates stay skipped.
   candidates.forEach((text, id) => {
     if (used.has(id)) return;
+    if (detectCandidateType(text, id) !== "study") return;
+
     const pageRange = extractPageRange(text);
-    const cleanedText = cleanChunkText(text);
+    const cleanedText = formatSourceTextBlock(cleanChunkText(text), `Фрагмент ${result.length + 1}`);
 
     if (!cleanedText) return;
 
@@ -252,12 +258,13 @@ function normalizePreparedChunks(aiChunks: any[], candidates: string[]) {
       skippable: false,
       reason: "",
       summary: "",
+      concepts: [],
       pageStart: pageRange?.start || null,
       pageEnd: pageRange?.end || null,
     });
   });
 
-  return result.map((chunk) => {
+  return mergeIncompleteStudyChunks(result).map((chunk) => {
     const isService = chunk.type === "toc" || chunk.type === "introduction";
     return {
       ...chunk,
@@ -271,6 +278,7 @@ function cleanChunkText(text: string) {
   return String(text || "")
     .replace(/\r/g, "")
     .replace(/^Страница\s+\d+\s*/gim, "")
+    .replace(/^\s*\d{1,4}\s*$/gm, "")
     .replace(/([a-zA-Zа-яА-ЯёЁ])-\s*\n\s*([a-zA-Zа-яА-ЯёЁ])/g, "$1$2")
     .replace(/[ \t]+/g, " ")
     .replace(/[ \t]+\n/g, "\n")
@@ -279,6 +287,103 @@ function cleanChunkText(text: string) {
     .replace(/\s+([)\]}])/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function formatSourceTextBlock(text: string, title?: string) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned) return "";
+
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const formatted: string[] = [];
+  if (title) formatted.push(`# ${String(title).trim()}`);
+
+  let paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    formatted.push(paragraph.join(" "));
+    paragraph = [];
+  };
+
+  lines.forEach((line) => {
+    if (isLikelyHeading(line)) {
+      flushParagraph();
+      formatted.push(`## ${line}`);
+      return;
+    }
+
+    const listItem = normalizeListItem(line);
+    if (listItem) {
+      flushParagraph();
+      formatted.push(listItem);
+      return;
+    }
+
+    paragraph.push(line);
+    if (line.length > 150 || /[.!?;:]$/.test(line)) flushParagraph();
+  });
+
+  flushParagraph();
+  return formatted.join("\n\n").trim();
+}
+
+function isLikelyHeading(line: string) {
+  return line.length <= 100
+    && (/^\d+(\.\d+)*\.?\s+\S+/.test(line) || /^[А-ЯA-ZЁ][А-ЯA-ZЁа-яa-zё\s,-]{6,}$/.test(line))
+    && !/[.!?;:]$/.test(line);
+}
+
+function normalizeListItem(line: string) {
+  const bullet = line.match(/^[–—\-*•]\s+(.+)$/);
+  if (bullet) return `- ${bullet[1].trim()}`;
+
+  const parameter = line.match(/^([^:]{3,80}):\s+(.+)$/);
+  if (parameter) return `- ${parameter[1].trim()}: ${parameter[2].trim()}`;
+
+  return "";
+}
+
+function mergeIncompleteStudyChunks(chunks: any[]) {
+  const merged: any[] = [];
+
+  chunks.forEach((chunk) => {
+    const previous = merged[merged.length - 1];
+    if (
+      previous
+      && !previous.skippable
+      && !chunk.skippable
+      && previous.type === "study"
+      && chunk.type === "study"
+      && isIncompleteEnding(previous.text)
+    ) {
+      previous.text = `${previous.text.trim()}\n\n${chunk.text.trim()}`.trim();
+      previous.title = previous.title || chunk.title;
+      previous.summary = [previous.summary, chunk.summary].filter(Boolean).join(" ");
+      previous.pageEnd = chunk.pageEnd ?? previous.pageEnd;
+      return;
+    }
+
+    merged.push({ ...chunk });
+  });
+
+  return merged;
+}
+
+function isIncompleteEnding(text: string) {
+  const normalized = stripMarkup(String(text || ""))
+    .replace(/^\s*\d{1,4}\s*$/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+
+  const tail = normalized.slice(-120).trim();
+  if (/[.!?…)"»\]]$/.test(tail)) return false;
+  if (/[,:;—-]$/.test(tail)) return true;
+
+  return /\b(и|или|а|но|что|как|который|которая|которое|которые|иной|другой|каждый|при|для|в|на|с|по|из|от|до|за|без)$/i.test(tail);
 }
 
 function normalizeReadableText(value: any, fallback: string) {

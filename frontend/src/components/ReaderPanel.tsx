@@ -109,7 +109,7 @@ export function ReaderPanel({
   const currentMeta = chunkMeta[currentIndex];
   const atLastLoadedChunk = currentIndex >= chunks.length - 1;
   const blockedByReview = locked && (pendingNextIndex === null || currentIndex + 1 >= pendingNextIndex);
-  const nextDisabled = busy || isAnalyzing || (atLastLoadedChunk && sourceDone) || blockedByReview || chunks.length === 0;
+  const nextDisabled = busy || isAnalyzing || (atLastLoadedChunk && sourceDone && !willPauseNext) || blockedByReview || chunks.length === 0;
   const previousDisabled = busy || isAnalyzing || currentIndex === 0 || chunks.length === 0;
 
   return (
@@ -127,7 +127,7 @@ export function ReaderPanel({
           onClick={onNext}
           disabled={nextDisabled}
           className={`h-11 flex items-center justify-center border rounded-lg disabled:opacity-50 transition-colors ${willPauseNext ? "bg-warning-soft border-warning text-warning hover:bg-warning hover:text-white hover:border-warning" : "border-line hover:border-accent"}`}
-          title={willPauseNext ? "Впереди вопрос или задание на закрепление" : (atLastLoadedChunk && !sourceDone ? "Загрузить продолжение" : "Следующий фрагмент")}
+          title={willPauseNext ? "Открыть вопросы по прочитанному материалу" : (atLastLoadedChunk && !sourceDone ? "Загрузить продолжение" : "Следующий блок")}
         >
           {isAnalyzing ? (
             <svg className="animate-spin h-5 w-5 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

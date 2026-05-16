@@ -65,6 +65,8 @@ export type ReviewGateProps = {
   contextText: string;
   /** Вызывается после успешного завершения паузы, чтобы родитель продолжил чтение. */
   onComplete: () => void;
+  /** Сообщает родителю о сформированных вопросах для постоянного хранения. */
+  onQuestionsReady?: (input: ReviewGateOpenInput, questionSet: QuestionSet) => void;
 };
 
 /**
@@ -128,6 +130,7 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
   fetchWithAuth,
   contextText,
   onComplete,
+  onQuestionsReady,
 }, ref) {
   const [active, setActive] = useState(false);
   const [minimized, setMinimized] = useState(false);
@@ -253,6 +256,7 @@ export const ReviewGate = forwardRef<ReviewGateHandle, ReviewGateProps>(function
         if (!nextQuestionSet) return false;
 
         const nextEvaluationContext = input.segmentText || input.currentText;
+        onQuestionsReady?.(input, nextQuestionSet);
         reviewCacheRef.current.set(reviewKey, {
           questionSet: nextQuestionSet,
           evaluationContext: nextEvaluationContext,

@@ -5,12 +5,19 @@ import dotenv from "dotenv";
 import { healthRouter } from "./routes/health";
 import { geminiRouter } from "./routes/gemini";
 import { aiRouter } from "./routes/ai";
+import { progressRouter } from "./routes/progress";
+import { sourcesRouter } from "./routes/sources";
+import { booksRouter } from "./routes/books";
+import { BookService } from "./services/bookService";
 
 dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
+
+// Initialize services
+BookService.init().catch(console.error);
 
 // Middleware
 app.use(cors());
@@ -46,6 +53,9 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
 // Routes
 app.use("/api/health", authMiddleware, healthRouter);
 app.use("/api/gemini", authMiddleware, geminiRouter);
+app.use("/api/progress", authMiddleware, progressRouter);
+app.use("/api/sources", authMiddleware, sourcesRouter);
+app.use("/api/books", authMiddleware, booksRouter);
 app.use("/api", authMiddleware, aiRouter);
 
 app.use((req, res) => {
@@ -57,6 +67,12 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: err.message || "Internal server error" });
 });
 
-app.listen(port, host, () => {
+const server = app.listen(port, host, () => {
   console.log(`Backend server listening on http://${host}:${port}`);
+});
+const keepAlive = setInterval(() => undefined, 60 * 60 * 1000);
+
+process.on("SIGTERM", () => {
+  clearInterval(keepAlive);
+  server.close(() => process.exit(0));
 });

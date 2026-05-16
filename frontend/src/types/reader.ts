@@ -20,6 +20,8 @@ export type ChunkMeta = {
   title: string;
   /** Краткое описание темы фрагмента. */
   summary: string;
+  /** Ключевые темы и концепции учебного блока. */
+  concepts?: string[];
   /** Первая страница исходного документа, к которой относится фрагмент. */
   pageStart: number | null;
   /** Последняя страница исходного документа, к которой относится фрагмент. */
@@ -91,4 +93,66 @@ export type QuestionSet = {
   quiz: QuizQuestion[];
   /** Практическое задание по пройденному сегменту. */
   practicalTask: string;
+};
+
+export type SourceRange = {
+  chunkStart: number;
+  chunkEnd: number;
+  pageStart: number | null;
+  pageEnd: number | null;
+};
+
+export type StoredQuestionSet = QuestionSet & {
+  id: string;
+  method: string;
+  createdAt: string;
+  sourceRange: SourceRange;
+};
+
+export type StoredProgressDocument = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  totalPages: number;
+  method: string;
+  currentIndex: number;
+  lastPauseIndex: number;
+  sourceCursor: number;
+  sourceDone: boolean;
+  chunks: Array<ChunkMeta & { index: number }>;
+  analyses: Array<AnalysisItem & { sourceRange: SourceRange }>;
+  questionSets: StoredQuestionSet[];
+};
+
+export type StoredProgressDocumentSummary = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  totalPages: number;
+  updatedAt: string;
+  method: string;
+  currentIndex: number;
+  progressPercent: number;
+  chunksCount: number;
+  analysesCount: number;
+  questionSetsCount: number;
+};
+
+export type SourceFileSummary = {
+  id: string;
+  name: string;
+  root: string;
+  relativePath: string;
+  size: number;
+  updatedAt: string;
+  canDelete: boolean;
+};
+
+export type SourceFilesResponse = {
+  sources: SourceFileSummary[];
+};
+
+export type BookGenerationResponse = {
+  success: boolean;
+  bookId: string;
 };
