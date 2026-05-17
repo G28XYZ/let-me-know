@@ -37,6 +37,24 @@ export default function Home() {
     });
   }, []);
 
+  useEffect(() => {
+    const syncTheme = () => {
+      const theme = localStorage.getItem("mdbook-theme") || "light";
+      document.documentElement.className = theme;
+    };
+
+    syncTheme();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "mdbook-theme") {
+        syncTheme();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem("auth_token");
     const headers = new Headers(options.headers);
@@ -267,7 +285,7 @@ export default function Home() {
             className={workspaceTab === "questions" ? "workspace-tab is-active" : "workspace-tab"}
             onClick={() => setWorkspaceTab("questions")}
           >
-            Вопросы
+            Тренажер
           </button>
         </div>
 
@@ -290,7 +308,7 @@ export default function Home() {
             <div className="questions-workspace">
               {questionSets.length === 0 ? (
                 <div className="questions-empty">
-                  Сформируйте вопросы через помощника.
+                  Сформируйте тренажер через помощника.
                 </div>
               ) : (
                 <>

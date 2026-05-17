@@ -103,18 +103,37 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
   const handleCreateQuestions = useCallback(async () => {
     if (!activeBookId) return;
     
-    const selectedItems = mode === "chapter"
-      ? chapterItems.filter((item) => item.id === effectiveSelectedChapterId)
-      : mode === "section"
-        ? sectionItems.filter((item) => item.id === effectiveSelectedSectionId)
-        : sectionItems.filter((item) => selectedSectionIds.includes(item.id));
+    let selectedItems: BookSummaryItem[] = [];
+    let questionSetTitle = "Самопроверка";
+    if (mode === "chapter") {
+      const chapterItem = chapterItems.find((item) => item.id === effectiveSelectedChapterId);
+      if (chapterItem) {
+        questionSetTitle = chapterItem.title;
+        const index = activeSummaryItems.findIndex((item) => item.id === chapterItem.id);
+        if (index !== -1) {
+          selectedItems.push(chapterItem);
+          const chapterLevel = chapterItem.level;
+          for (let i = index + 1; i < activeSummaryItems.length; i++) {
+            if (activeSummaryItems[i].level <= chapterLevel) break;
+            selectedItems.push(activeSummaryItems[i]);
+          }
+        }
+      }
+    } else if (mode === "section") {
+      selectedItems = sectionItems.filter((item) => item.id === effectiveSelectedSectionId);
+      questionSetTitle = selectedItems[0]?.title || questionSetTitle;
+    } else {
+      selectedItems = sectionItems.filter((item) => selectedSectionIds.includes(item.id));
+      questionSetTitle = selectedItems.length === 1
+        ? selectedItems[0].title
+        : `Выбранные разделы: ${selectedItems.length}`;
+    }
 
     if (selectedItems.length === 0) {
       setResultText("Выберите хотя бы один пункт.");
       return;
     }
 
-    const questionSetTitle = selectedItems.map((item) => item.title).join(", ");
     setLoadingQuestions(true);
     setResultText("Подготавливаем вопросы...");
 
@@ -122,7 +141,7 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
       // Fetch content for each selected section
       const sectionsWithText = await Promise.all(
         selectedItems.map(async (item) => {
-          const res = await fetchWithAuth(`/api/books/${activeBookId}/chapters/${item.href}`);
+          const res = await fetchWithAuth(`/api/books/${encodeURIComponent(activeBookId)}/chapters/${encodeURIComponent(item.href)}`);
           if (!res.ok) throw new Error(`Не удалось загрузить ${item.title}`);
           const data = await res.json() as ChapterContentResponse;
           return { title: item.title, text: data.content };
@@ -140,14 +159,14 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
       const aiData = await aiRes.json() as GeneratedQuestionsData;
 
       onQuestionsGenerated(aiData, questionSetTitle || "Самопроверка");
-      setResultText("Вопросы готовы во вкладке Вопросы.");
+      setResultText("Вопросы готовы во вкладке Тренажер.");
       setOpen(false);
     } catch (error) {
       setResultText(error instanceof Error ? error.message : "Произошла ошибка");
     } finally {
       setLoadingQuestions(false);
     }
-  }, [activeBookId, chapterItems, effectiveSelectedChapterId, effectiveSelectedSectionId, fetchWithAuth, mode, onQuestionsGenerated, sectionItems, selectedSectionIds]);
+  }, [activeBookId, activeSummaryItems, chapterItems, effectiveSelectedChapterId, effectiveSelectedSectionId, fetchWithAuth, mode, onQuestionsGenerated, sectionItems, selectedSectionIds]);
 
   const handleSendMessage = useCallback(async () => {
     const message = draftMessage.trim();

@@ -178,9 +178,23 @@ aiRouter.post("/generate-questions", async (req, res) => {
   const provider = normalizeProvider(payload.provider);
 
   try {
-    const context = payload.sections.map((s) => `Раздел: ${s.title}\n${s.text}`).join("\n\n");
-    const system = "Ты AI-преподаватель. Сформируй структурированный список заданий для самопроверки по предоставленному материалу.";
-    const userPrompt = `Материал:\n${context}\n\nТвоя задача — составить ровно 3 тестовых вопроса с вариантами ответов (quiz), 1 практическое задание (practicalTask) и 1 открытый вопрос для размышления (openQuestion). Для каждого задания обязательно напиши короткую подсказку (hint), которая поможет ученику, если он ошибется или затруднится ответить.
+    const sections = normalizeQuestionSections(payload.sections);
+    if (!sections.length) {
+      res.status(400).json({ error: "Sections with text are required." });
+      return;
+    }
+
+    const context = sections.map((section, index) => [
+      `Фрагмент ${index + 1}: ${section.title}`,
+      section.text,
+    ].join("\n")).join("\n\n---\n\n");
+    const system = "Ты AI-преподаватель. Сформируй структурированный тренажер для самопроверки по предоставленному учебному материалу. Отвечай только валидным JSON-объектом без markdown.";
+    const userPrompt = `Материал может быть одним разделом или целой главой с несколькими подразделами. Используй весь предоставленный материал, не ограничивайся первыми фрагментами и не составляй вопросы по служебным заголовкам.
+
+Материал:
+${context}
+
+Твоя задача - составить ровно 3 тестовых вопроса с вариантами ответов (quizzes), 1 практическое задание (practicalTask) и 1 открытый вопрос для размышления (openQuestion). Для каждого задания обязательно напиши короткую подсказку (hint), которая поможет ученику, если он ошибется или затруднится ответить.
 Верни строго JSON-объект по схеме:
 {
   "quizzes": [
@@ -201,8 +215,8 @@ aiRouter.post("/generate-questions", async (req, res) => {
   }
 }`;
 
-    const text = await completeJson(system, userPrompt, 2000, provider);
-    const data = parseJsonOrFallback(text, { quizzes: [], practicalTask: null, openQuestion: null });
+    const text = await completeJson(system, userPrompt, 3500, provider);
+    const data = normalizeGeneratedQuestions(parseJsonOrFallback(text, { quizzes: [], practicalTask: null, openQuestion: null }));
     res.status(200).json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -214,6 +228,96 @@ function normalizeProvider(value?: string) {
   if (provider === "gemini-cli") return "gemini-cli";
   if (provider === "openai-compatible") return "openai-compatible";
   return config.defaultProvider === "gemini-cli" ? "gemini-cli" : "openai-compatible";
+}
+
+function normalizeQuestionSections(sections: GenerateQuestionsPayload["sections"]) {
+  return (Array.isArray(sections) ? sections : [])
+    .map((section, index) => ({
+      title: String(section?.title || `Раздел ${index + 1}`).trim() || `Раздел ${index + 1}`,
+      text: String(section?.text || "").replace(/\r\n?/g, "\n").trim(),
+    }))
+    .filter((section) => section.text);
+}
+
+function normalizeGeneratedQuestions(data: any) {
+  const sourceQuizzes = Array.isArray(data?.quizzes)
+    ? data.quizzes
+    : Array.isArray(data?.quiz)
+      ? data.quiz
+      : [];
+  const quizzes = sourceQuizzes
+    .map(normalizeGeneratedQuiz)
+    .filter((quiz: any) => quiz.question && quiz.options.length >= 2 && quiz.correctAnswer)
+    .slice(0, 3);
+
+  const practicalTask = normalizeGeneratedTask(data?.practicalTask, "task");
+  const openQuestion = normalizeGeneratedTask(data?.openQuestion, "question");
+
+  return {
+    quizzes,
+    practicalTask,
+    openQuestion,
+  };
+}
+
+function normalizeGeneratedQuiz(value: any) {
+  const question = String(value?.question || value?.title || "").trim();
+  const rawOptions = Array.isArray(value?.options)
+    ? value.options
+    : Array.isArray(value?.answers)
+      ? value.answers
+      : [];
+  const options = dedupeStrings(rawOptions.map((option: any) => String(option).trim()).filter(Boolean)).slice(0, 4);
+  let correctAnswer = String(value?.correctAnswer || value?.answer || value?.correct || "").trim();
+
+  if (correctAnswer && !options.includes(correctAnswer)) {
+    if (options.length < 4) {
+      options.push(correctAnswer);
+    } else {
+      options[options.length - 1] = correctAnswer;
+    }
+  }
+
+  if (!correctAnswer && options.length > 0) {
+    correctAnswer = options[0];
+  }
+
+  return {
+    question,
+    options,
+    correctAnswer,
+    hint: String(value?.hint || value?.explanation || "Вернитесь к соответствующему фрагменту материала.").trim(),
+  };
+}
+
+function normalizeGeneratedTask(value: any, field: "task" | "question") {
+  if (!value) return null;
+
+  const text = typeof value === "string"
+    ? value
+    : String(value?.[field] || value?.text || value?.question || value?.task || "").trim();
+  if (!text) return null;
+
+  return {
+    [field]: text,
+    hint: typeof value === "string"
+      ? "Сверьте ответ с ключевыми понятиями из материала."
+      : String(value?.hint || value?.answer || value?.explanation || "Сверьте ответ с ключевыми понятиями из материала.").trim(),
+  };
+}
+
+function dedupeStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  values.forEach((value) => {
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(value);
+  });
+
+  return result;
 }
 
 async function prepareBatch(batch: string[], payload: PreparePayload, globalStart: number, provider: string) {

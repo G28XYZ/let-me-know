@@ -55,27 +55,30 @@ export function runGemini(args: string[], timeoutMs: number): Promise<{ code: nu
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    
-    const chunks: Buffer[] = [];
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
     }, timeoutMs);
 
-    child.stdout.on("data", (chunk) => chunks.push(chunk));
-    child.stderr.on("data", (chunk) => chunks.push(chunk));
-    
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+
     child.on("error", (error) => {
       clearTimeout(timer);
       const output = error.message || "Failed to start Gemini CLI.";
       appendGeminiConsole({ startedAt, args, code: 1, output });
       resolve({ code: 1, output, error: output });
     });
-    
+
     child.on("close", (code) => {
       clearTimeout(timer);
-      const output = Buffer.concat(chunks).toString("utf8").trim();
-      appendGeminiConsole({ startedAt, args, code, output });
-      resolve({ code: code ?? 1, output });
+      const stdoutText = Buffer.concat(stdoutChunks).toString("utf8").trim();
+      const stderrText = Buffer.concat(stderrChunks).toString("utf8").trim();
+      appendGeminiConsole({ startedAt, args, code, output: stdoutText || stderrText });
+
+      resolve({ code: code ?? 1, output: stdoutText, error: stderrText });
     });
   });
 }

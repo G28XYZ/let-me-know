@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   allowedDevOrigins: ["127.0.0.1", "localhost", "5.128.164.38"],
+  experimental: {
+    proxyTimeout: 300000,
+  },
   async rewrites() {
     return [
       {
