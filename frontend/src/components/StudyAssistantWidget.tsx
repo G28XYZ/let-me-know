@@ -1,5 +1,6 @@
 "use client";
 
+import Editor from "@monaco-editor/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BookSummaryItem, BookSummaryResponse, ChatResponse, EvaluateResponse, GeneratedQuestionsData, ChapterContentResponse } from "@/types/reader";
 
@@ -495,8 +496,31 @@ export function InteractiveQuestionsFlow({
         <div className="space-y-4 text-left">
           <h4 className="font-bold text-lg mb-2 text-left">Практическое задание</h4>
           <p className="text-[1rem] leading-relaxed mb-4 text-left">{practicalTask.task}</p>
+          <div className="question-monaco-shell">
+            <Editor
+              height="260px"
+              defaultLanguage="sql"
+              theme="vs"
+              value={practicalAnswer}
+              onChange={(value) => {
+                setPracticalAnswer(value || "");
+                setPracticalCheck(null);
+              }}
+              options={{
+                minimap: { enabled: false },
+                wordWrap: "on",
+                lineNumbers: "on",
+                scrollBeyondLastLine: false,
+                fontSize: 14,
+                tabSize: 2,
+                padding: { top: 12, bottom: 12 },
+                automaticLayout: true,
+                renderLineHighlight: "line",
+              }}
+            />
+          </div>
           <textarea
-            className="app-input question-answer-input"
+            className="question-editor-fallback"
             value={practicalAnswer}
             onChange={(event) => {
               setPracticalAnswer(event.target.value);
@@ -578,33 +602,35 @@ export function InteractiveQuestionsFlow({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 flex flex-col">
-      <div className="question-tabs" role="tablist" aria-label="Разделы самопроверки">
+    <div className="question-layout">
+      <nav className="question-side-nav" role="tablist" aria-label="Разделы самопроверки">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             role="tab"
             aria-selected={activeTab === tab.id}
-            className={activeTab === tab.id ? "question-tab is-active" : "question-tab"}
+            className={activeTab === tab.id ? "question-nav-tab is-active" : "question-nav-tab"}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
           </button>
         ))}
-      </div>
-      <div className="question-tab-panel">
-        {renderTabContent()}
-      </div>
-      <div className="question-finish-row">
-        <button
-          type="button"
-          className="app-button px-6 assistant-primary"
-          onClick={() => setFinished(true)}
-          disabled={!canFinish}
-        >
-          Завершить проверку
-        </button>
+      </nav>
+      <div className="question-content-column">
+        <div className="question-tab-panel">
+          {renderTabContent()}
+        </div>
+        <div className="question-finish-row">
+          <button
+            type="button"
+            className="app-button px-6 assistant-primary"
+            onClick={() => setFinished(true)}
+            disabled={!canFinish}
+          >
+            Завершить проверку
+          </button>
+        </div>
       </div>
     </div>
   );

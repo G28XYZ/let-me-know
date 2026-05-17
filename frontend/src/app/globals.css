@@ -762,37 +762,57 @@
   outline: none;
 }
 
-.question-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-block-end: 18px;
-  border-block-end: 1px solid var(--theme-popup-border);
-  padding-block-end: 10px;
+.question-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 22px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
 }
 
-.question-tab {
+.question-side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-inline-end: 1px solid var(--theme-popup-border);
+  padding-inline-end: 14px;
+}
+
+.question-nav-tab {
+  display: flex;
+  align-items: center;
+  width: 100%;
   min-height: 34px;
   border: 1px solid var(--theme-popup-border);
   border-radius: 4px;
   background: var(--bg);
   color: var(--icons);
-  padding: 7px 12px;
+  padding: 9px 11px;
   font-size: 0.86rem;
   line-height: 1.2;
+  text-align: left;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.question-tab:hover,
-.question-tab.is-active {
+.question-nav-tab:hover,
+.question-nav-tab.is-active {
   border-color: var(--links);
   background: color-mix(in srgb, var(--links) 16%, var(--theme-popup-bg));
   color: var(--fg);
 }
 
-.question-tab.is-active {
+.question-nav-tab.is-active {
   box-shadow: inset 0 0 0 1px var(--links);
   font-weight: 700;
+}
+
+.question-content-column {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .question-tab-panel {
@@ -826,6 +846,22 @@
 .question-answer-input:focus {
   border-color: var(--links);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--links) 22%, transparent);
+}
+
+.question-monaco-shell {
+  overflow: hidden;
+  border: 1px solid var(--theme-popup-border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.question-monaco-shell:focus-within {
+  border-color: var(--links);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--links) 22%, transparent);
+}
+
+.question-editor-fallback {
+  display: none;
 }
 
 .question-nav-row,
@@ -943,6 +979,29 @@
 .question-option:disabled {
   cursor: default;
   opacity: 1;
+}
+
+@media (max-width: 720px) {
+  .question-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .question-side-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--theme-popup-border);
+    padding-inline-end: 0;
+    padding-block-end: 10px;
+  }
+
+  .question-nav-tab {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 520px) {
