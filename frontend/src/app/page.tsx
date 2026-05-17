@@ -13,7 +13,45 @@ type GeneratedQuestionSet = {
   id: string;
   title: string;
   data: GeneratedQuestionsData;
+  sourceKey: string;
+  createdAt: string;
 };
+
+const questionSetsStorageKey = (bookId: string) => `learn-helper:question-sets:${bookId}`;
+
+function loadQuestionSets(bookId: string): GeneratedQuestionSet[] {
+  try {
+    const raw = localStorage.getItem(questionSetsStorageKey(bookId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item: unknown): GeneratedQuestionSet | null => {
+        if (!isRecord(item)) return null;
+
+        const id = String(item.id || "").trim();
+        const title = String(item.title || "").trim();
+        const sourceKey = String(item.sourceKey || "").trim();
+        if (!id || !title || !sourceKey || !item.data) return null;
+
+        return {
+          id,
+          title,
+          sourceKey,
+          data: item.data,
+          createdAt: String(item?.createdAt || new Date().toISOString()),
+        };
+      })
+      .filter((item): item is GeneratedQuestionSet => Boolean(item))
+      .slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -29,6 +67,7 @@ export default function Home() {
   const [busyText, setBusyText] = useState("");
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("book");
   const [questionSets, setQuestionSets] = useState<GeneratedQuestionSet[]>([]);
+  const [questionSetsBookId, setQuestionSetsBookId] = useState<string | null>(null);
   const [activeQuestionSetId, setActiveQuestionSetId] = useState("");
 
   useEffect(() => {
@@ -54,6 +93,27 @@ export default function Home() {
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (!activeBookId) {
+        setQuestionSets([]);
+        setQuestionSetsBookId(null);
+        setActiveQuestionSetId("");
+        return;
+      }
+
+      const savedQuestionSets = loadQuestionSets(activeBookId);
+      setQuestionSets(savedQuestionSets);
+      setQuestionSetsBookId(activeBookId);
+      setActiveQuestionSetId(savedQuestionSets[0]?.id || "");
+    });
+  }, [activeBookId]);
+
+  useEffect(() => {
+    if (!activeBookId || questionSetsBookId !== activeBookId) return;
+    localStorage.setItem(questionSetsStorageKey(activeBookId), JSON.stringify(questionSets));
+  }, [activeBookId, questionSets, questionSetsBookId]);
 
   const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = localStorage.getItem("auth_token");
@@ -101,8 +161,6 @@ export default function Home() {
     const data = await response.json() as BookGenerationResponse;
     setActiveSource(source);
     setActiveBookId(data.bookId);
-    setQuestionSets([]);
-    setActiveQuestionSetId("");
     setWorkspaceTab("book");
   }, [fetchWithAuth]);
 
@@ -122,9 +180,11 @@ export default function Home() {
     }
 
     const data = await response.json() as BookGenerationResponse;
+    localStorage.removeItem(questionSetsStorageKey(data.bookId));
     setActiveSource(source);
     setActiveBookId(data.bookId);
     setQuestionSets([]);
+    setQuestionSetsBookId(data.bookId);
     setActiveQuestionSetId("");
     setWorkspaceTab("book");
   }, [fetchWithAuth]);
@@ -220,18 +280,37 @@ export default function Home() {
     }
   };
 
-  const handleQuestionsGenerated = useCallback((data: GeneratedQuestionsData, title: string) => {
+  const handleQuestionsGenerated = useCallback((data: GeneratedQuestionsData, title: string, sourceKey: string) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const nextSet = {
       id,
       title,
       data,
+      sourceKey,
+      createdAt: new Date().toISOString(),
     };
 
-    setQuestionSets((current) => [nextSet, ...current]);
+    setQuestionSetsBookId(activeBookId);
+    setQuestionSets((current) => [
+      nextSet,
+      ...current.filter((set) => set.sourceKey !== sourceKey),
+    ].slice(0, 30));
     setActiveQuestionSetId(id);
     setWorkspaceTab("questions");
+  }, [activeBookId]);
+
+  const handleCachedQuestionsSelected = useCallback((set: GeneratedQuestionSet) => {
+    setQuestionSets((current) => [
+      set,
+      ...current.filter((item) => item.id !== set.id),
+    ]);
+    setActiveQuestionSetId(set.id);
+    setWorkspaceTab("questions");
   }, []);
+
+  const findGeneratedQuestionSet = useCallback((sourceKey: string) => (
+    questionSets.find((set) => set.sourceKey === sourceKey) || null
+  ), [questionSets]);
 
   if (isAuthenticated === null) return null;
   if (!isAuthenticated) {
@@ -352,6 +431,8 @@ export default function Home() {
         activeBookId={activeBookId}
         fetchWithAuth={fetchWithAuth}
         onQuestionsGenerated={handleQuestionsGenerated}
+        onCachedQuestionsSelected={handleCachedQuestionsSelected}
+        findGeneratedQuestionSet={findGeneratedQuestionSet}
       />
     </>
   );

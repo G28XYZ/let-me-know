@@ -1,20 +1,32 @@
 "use client";
 
 import Editor from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import type { BookSummaryItem, BookSummaryResponse, ChatResponse, EvaluateResponse, GeneratedQuestionsData, ChapterContentResponse } from "@/types/reader";
 
 type StudyAssistantMode = "section" | "sections" | "chapter" | "chat";
+type AppTheme = "light" | "rust" | "coal" | "navy" | "ayu";
+type MonacoInstance = Parameters<NonNullable<ComponentProps<typeof Editor>["beforeMount"]>>[0];
 
 type ChatMessage = {
   role: "user" | "assistant";
   text: string;
 };
 
+type CachedQuestionSet = {
+  id: string;
+  title: string;
+  data: GeneratedQuestionsData;
+  sourceKey: string;
+  createdAt: string;
+};
+
 export type StudyAssistantWidgetProps = {
   activeBookId: string | null;
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>;
-  onQuestionsGenerated: (data: GeneratedQuestionsData, title: string) => void;
+  onQuestionsGenerated: (data: GeneratedQuestionsData, title: string, sourceKey: string) => void;
+  onCachedQuestionsSelected: (set: CachedQuestionSet) => void;
+  findGeneratedQuestionSet: (sourceKey: string) => CachedQuestionSet | null;
 };
 
 const modes: Array<{ id: StudyAssistantMode; label: string }> = [
@@ -24,7 +36,133 @@ const modes: Array<{ id: StudyAssistantMode; label: string }> = [
   { id: "chat", label: "Чат" },
 ];
 
-export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsGenerated }: StudyAssistantWidgetProps) {
+const appThemes: AppTheme[] = ["light", "rust", "coal", "navy", "ayu"];
+
+function getCurrentAppTheme(): AppTheme {
+  if (typeof window === "undefined") return "light";
+
+  const htmlClass = document.documentElement.className;
+  const classTheme = appThemes.find((theme) => document.documentElement.classList.contains(theme) || htmlClass === theme);
+  const storedTheme = localStorage.getItem("mdbook-theme");
+  const theme = classTheme || appThemes.find((item) => item === storedTheme);
+  return theme || "light";
+}
+
+function useAppTheme() {
+  const [appTheme, setAppTheme] = useState<AppTheme>("light");
+
+  useEffect(() => {
+    const syncTheme = () => setAppTheme(getCurrentAppTheme());
+
+    syncTheme();
+    window.addEventListener("storage", syncTheme);
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+
+    return () => {
+      window.removeEventListener("storage", syncTheme);
+      observer.disconnect();
+    };
+  }, []);
+
+  return appTheme;
+}
+
+function defineMonacoThemes(monaco: MonacoInstance) {
+  monaco.editor.defineTheme("learn-helper-light", {
+    base: "vs",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "20609f" },
+      { token: "string", foreground: "0b6a3a" },
+      { token: "number", foreground: "8a3ffc" },
+    ],
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.foreground": "#000000",
+      "editorLineNumber.foreground": "#747474",
+      "editor.selectionBackground": "#20609f33",
+      "editor.lineHighlightBackground": "#e6e6e666",
+    },
+  });
+
+  monaco.editor.defineTheme("learn-helper-rust", {
+    base: "vs",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "2b79a2" },
+      { token: "string", foreground: "5f6f36" },
+      { token: "number", foreground: "8a4f22" },
+    ],
+    colors: {
+      "editor.background": "#e1e1db",
+      "editor.foreground": "#262625",
+      "editorLineNumber.foreground": "#737480",
+      "editor.selectionBackground": "#2b79a233",
+      "editor.lineHighlightBackground": "#99908a33",
+    },
+  });
+
+  monaco.editor.defineTheme("learn-helper-coal", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "5aa6d6" },
+      { token: "string", foreground: "88b46a" },
+      { token: "number", foreground: "d19a66" },
+    ],
+    colors: {
+      "editor.background": "#141617",
+      "editor.foreground": "#98a3ad",
+      "editorLineNumber.foreground": "#43484d",
+      "editor.selectionBackground": "#3473ad44",
+      "editor.lineHighlightBackground": "#1f2124",
+    },
+  });
+
+  monaco.editor.defineTheme("learn-helper-navy", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "4aa3c7" },
+      { token: "string", foreground: "a6cc70" },
+      { token: "number", foreground: "ffb454" },
+    ],
+    colors: {
+      "editor.background": "#161923",
+      "editor.foreground": "#bcbdd0",
+      "editorLineNumber.foreground": "#737480",
+      "editor.selectionBackground": "#2b79a244",
+      "editor.lineHighlightBackground": "#282e40",
+    },
+  });
+
+  monaco.editor.defineTheme("learn-helper-ayu", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "keyword", foreground: "ffb454" },
+      { token: "string", foreground: "bae67e" },
+      { token: "number", foreground: "d4bfff" },
+    ],
+    colors: {
+      "editor.background": "#14191f",
+      "editor.foreground": "#c5c5c5",
+      "editorLineNumber.foreground": "#737480",
+      "editor.selectionBackground": "#0096cf44",
+      "editor.lineHighlightBackground": "#191f26",
+    },
+  });
+}
+
+export function StudyAssistantWidget({
+  activeBookId,
+  fetchWithAuth,
+  onQuestionsGenerated,
+  onCachedQuestionsSelected,
+  findGeneratedQuestionSet,
+}: StudyAssistantWidgetProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<StudyAssistantMode>("section");
   const [summaryBookId, setSummaryBookId] = useState<string | null>(null);
@@ -135,6 +273,15 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
       return;
     }
 
+    const sourceKey = `${mode}:${selectedItems.map((item) => item.href).join("|")}`;
+    const cachedQuestionSet = findGeneratedQuestionSet(sourceKey);
+    if (cachedQuestionSet) {
+      onCachedQuestionsSelected(cachedQuestionSet);
+      setResultText("Готовый тренажер открыт из сохраненных.");
+      setOpen(false);
+      return;
+    }
+
     setLoadingQuestions(true);
     setResultText("Подготавливаем вопросы...");
 
@@ -159,7 +306,7 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
       if (!aiRes.ok) throw new Error("Ошибка AI при генерации вопросов");
       const aiData = await aiRes.json() as GeneratedQuestionsData;
 
-      onQuestionsGenerated(aiData, questionSetTitle || "Самопроверка");
+      onQuestionsGenerated(aiData, questionSetTitle || "Самопроверка", sourceKey);
       setResultText("Вопросы готовы во вкладке Тренажер.");
       setOpen(false);
     } catch (error) {
@@ -167,7 +314,7 @@ export function StudyAssistantWidget({ activeBookId, fetchWithAuth, onQuestionsG
     } finally {
       setLoadingQuestions(false);
     }
-  }, [activeBookId, activeSummaryItems, chapterItems, effectiveSelectedChapterId, effectiveSelectedSectionId, fetchWithAuth, mode, onQuestionsGenerated, sectionItems, selectedSectionIds]);
+  }, [activeBookId, activeSummaryItems, chapterItems, effectiveSelectedChapterId, effectiveSelectedSectionId, fetchWithAuth, findGeneratedQuestionSet, mode, onCachedQuestionsSelected, onQuestionsGenerated, sectionItems, selectedSectionIds]);
 
   const handleSendMessage = useCallback(async () => {
     const message = draftMessage.trim();
@@ -311,6 +458,7 @@ export function InteractiveQuestionsFlow({
   fetchWithAuth: (url: string, options?: RequestInit) => Promise<Response>;
   onClose: () => void;
 }) {
+  const appTheme = useAppTheme();
   const [activeTab, setActiveTab] = useState<"quiz" | "practice" | "open">(() => {
     if (data.quizzes?.length) return "quiz";
     if (data.practicalTask) return "practice";
@@ -500,7 +648,8 @@ export function InteractiveQuestionsFlow({
             <Editor
               height="260px"
               defaultLanguage="sql"
-              theme="vs"
+              beforeMount={defineMonacoThemes}
+              theme={`learn-helper-${appTheme}`}
               value={practicalAnswer}
               onChange={(value) => {
                 setPracticalAnswer(value || "");

@@ -852,7 +852,7 @@
   overflow: hidden;
   border: 1px solid var(--theme-popup-border);
   border-radius: 4px;
-  background: #fff;
+  background: var(--theme-popup-bg);
 }
 
 .question-monaco-shell:focus-within {
