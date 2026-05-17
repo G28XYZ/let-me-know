@@ -8,7 +8,7 @@ install:
 	@echo "Installing frontend dependencies..."
 	cd frontend && npm install
 	@echo "Installing tts dependencies..."
-	cd tts && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+	cd tts && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 dev-backend:
 	@echo "Starting backend..."
@@ -20,7 +20,7 @@ dev-frontend:
 
 dev-tts:
 	@echo "Starting tts..."
-	cd tts && source .venv/bin/activate && python3 main.py
+	cd tts && .venv/bin/python main.py
 
 dev:
 	@echo "Starting backend, frontend and tts..."
