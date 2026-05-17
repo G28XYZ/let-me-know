@@ -76,6 +76,17 @@ export class BookService {
       .filter((item): item is BookSummaryItem => Boolean(item));
   }
 
+  static async getChapterContent(bookId: string, chapterHref: string): Promise<string> {
+    const chapterPath = path.join(this.getBookRoot(bookId), "src", chapterHref);
+    const root = this.getBookRoot(bookId);
+
+    if (!chapterPath.startsWith(`${root}${path.sep}`)) {
+      throw new Error("Invalid chapter path.");
+    }
+
+    return fs.readFile(chapterPath, "utf8");
+  }
+
   private static getBookRoot(bookId: string) {
     const bookRoot = path.resolve(this.booksDir, bookId);
     if (!bookRoot.startsWith(`${this.booksDir}${path.sep}`) && bookRoot !== this.booksDir) {

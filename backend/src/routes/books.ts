@@ -68,6 +68,22 @@ booksRouter.get("/:bookId/summary", async (req, res) => {
   }
 });
 
+booksRouter.get("/:bookId/chapters/:chapterHref", async (req, res) => {
+  const { bookId, chapterHref } = req.params;
+
+  try {
+    if (!BookService.hasGeneratedBook(bookId)) {
+      return res.status(404).json({ error: "Generated book not found" });
+    }
+
+    const content = await BookService.getChapterContent(bookId, chapterHref);
+    res.json({ content });
+  } catch (error: any) {
+    console.error("Fetch chapter failed:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve generated books
 booksRouter.use("/view/:bookId", async (req, res, next) => {
     const { bookId } = req.params;

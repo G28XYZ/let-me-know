@@ -2,7 +2,7 @@ import { Router } from "express";
 import { config } from "../config";
 import { completeJson } from "../services/aiService";
 import { roughSplitText, parseJsonOrFallback, asArray, extractPageRange } from "../utils/text";
-import { PreparePayload, AnalysisPayload, QuestionsPayload } from "../types";
+import { PreparePayload, AnalysisPayload, QuestionsPayload, ChatPayload, GenerateQuestionsPayload } from "../types";
 
 export const aiRouter = Router();
 
@@ -147,6 +147,63 @@ aiRouter.post("/evaluate", async (req, res) => {
     );
     const result = parseJsonOrFallback(text, { isCorrect: false, feedback: "Не удалось оценить ответ." });
     res.status(200).json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+aiRouter.post("/chat", async (req, res) => {
+  const payload = req.body as ChatPayload;
+  const provider = normalizeProvider(payload.provider);
+
+  try {
+    const system = "Ты AI-помощник в приложении Learn Helper. Помогаешь студенту изучать материал. Отвечай кратко и по делу.";
+    const context = payload.context ? `Контекст изучаемого материала:\n${payload.context}\n\n` : "";
+    const history = payload.messages.map((m) => `${m.role === "user" ? "Ученик" : "Ассистент"}: ${m.text}`).join("\n");
+    const userPrompt = `${context}История переписки:\n${history}\n\nАссистент:`;
+
+    const response = await completeJson(system, userPrompt, 1000, provider);
+    
+    // completeJson assumes it should return JSON, but for chat we might want plain text
+    // However, completeJson uses extractChatText which returns content directly.
+    // If provider is gemini-cli, it returns output directly.
+    res.status(200).json({ text: response.replace(/^"|"$/g, "").trim() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+aiRouter.post("/generate-questions", async (req, res) => {
+  const payload = req.body as GenerateQuestionsPayload;
+  const provider = normalizeProvider(payload.provider);
+
+  try {
+    const context = payload.sections.map((s) => `Раздел: ${s.title}\n${s.text}`).join("\n\n");
+    const system = "Ты AI-преподаватель. Сформируй структурированный список заданий для самопроверки по предоставленному материалу.";
+    const userPrompt = `Материал:\n${context}\n\nТвоя задача — составить ровно 3 тестовых вопроса с вариантами ответов (quiz), 1 практическое задание (practicalTask) и 1 открытый вопрос для размышления (openQuestion). Для каждого задания обязательно напиши короткую подсказку (hint), которая поможет ученику, если он ошибется или затруднится ответить.
+Верни строго JSON-объект по схеме:
+{
+  "quizzes": [
+    {
+      "question": "Текст вопроса",
+      "options": ["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4"],
+      "correctAnswer": "Правильный вариант (должен точно совпадать с одним из options)",
+      "hint": "Подсказка"
+    }
+  ],
+  "practicalTask": {
+    "task": "Текст практического задания",
+    "hint": "Подсказка"
+  },
+  "openQuestion": {
+    "question": "Текст открытого вопроса",
+    "hint": "Подсказка"
+  }
+}`;
+
+    const text = await completeJson(system, userPrompt, 2000, provider);
+    const data = parseJsonOrFallback(text, { quizzes: [], practicalTask: null, openQuestion: null });
+    res.status(200).json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -445,7 +502,7 @@ function buildQuestionsPrompt(payload: QuestionsPayload) {
       currentText: payload.currentText,
       segmentTextSincePreviousQuestion: payload.segmentText,
       previousContext: payload.previousContext || "",
-      task: "Сформируй короткую паузу повторения по segmentTextSincePreviousQuestion. previousContext можно использовать только если он явно связан с текущим отрывком. Предпочитай 1-2 тестовых вопроса и один открытый вопрос. Практическое задание добавляй только если оно естественно следует из материала. Верни строго один JSON-объект по схеме.",
+      task: "Сформируй короткую паузу повторения по segmentTextSincePreviousQuestion. previousContext можно использовать только если он явно связан ...",
     },
     null,
     2

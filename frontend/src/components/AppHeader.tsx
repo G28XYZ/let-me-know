@@ -21,7 +21,13 @@ export type AppHeaderProps = {
  *
  * После загрузки родитель сам запускает конвертацию PDF/Markdown/TXT в mdBook.
  */
-export function AppHeader({ busy, onLibraryOpen, onRegenerateBook, onFileSelect, hasActiveBook }: AppHeaderProps) {
+export function AppHeader({
+  busy,
+  onLibraryOpen,
+  onRegenerateBook,
+  onFileSelect,
+  hasActiveBook,
+}: AppHeaderProps) {
   return (
     <header className="app-header sticky top-0 z-10 flex items-center justify-between px-[15px]">
       <div className="min-w-0">

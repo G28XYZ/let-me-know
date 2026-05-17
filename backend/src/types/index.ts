@@ -49,3 +49,14 @@ export interface QuestionsPayload {
     totalChunks: number;
   };
 }
+
+export interface ChatPayload {
+  messages: Array<{ role: "user" | "assistant"; text: string }>;
+  context?: string;
+  provider?: string;
+}
+
+export interface GenerateQuestionsPayload {
+  sections: Array<{ title: string; text: string }>;
+  provider?: string;
+}

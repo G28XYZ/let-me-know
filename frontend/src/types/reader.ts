@@ -28,3 +28,37 @@ export type BookSummaryItem = {
 export type BookSummaryResponse = {
   items: BookSummaryItem[];
 };
+
+export type ChatResponse = {
+  text: string;
+};
+
+export type EvaluateResponse = {
+  isCorrect: boolean;
+  feedback: string;
+};
+
+export type QuestionsResponse = {
+  questions: string[];
+};
+
+export type ChapterContentResponse = {
+  content: string;
+};
+
+export type GeneratedQuestionsData = {
+  quizzes?: Array<{
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    hint: string;
+  }>;
+  practicalTask?: {
+    task: string;
+    hint: string;
+  } | null;
+  openQuestion?: {
+    question: string;
+    hint: string;
+  } | null;
+};
