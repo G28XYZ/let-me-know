@@ -1,47 +1,94 @@
 # Learn Helper
 
-Сервис для подготовки учебных материалов: пользователь загружает исходник, backend конвертирует его в Markdown, собирает mdBook и frontend показывает готовую книгу.
+Learn Helper - сервис для подготовки и изучения учебных материалов. Пользователь загружает PDF, TXT или Markdown, backend преобразует материал в Markdown, собирает mdBook, а frontend открывает готовую книгу с AI-помощником, конспектами, самопроверкой и озвучкой.
 
-## Текущий пайплайн
+## Возможности
+
+- библиотека загруженных материалов;
+- сборка PDF/TXT/Markdown в mdBook;
+- чтение книги внутри приложения;
+- автоматический краткий конспект в конце каждого раздела;
+- серверный и браузерный кэш конспектов;
+- генерация вопросов для самопроверки по разделу, нескольким разделам или главе;
+- интерактивный тренажер: тесты, практическое задание, открытый вопрос;
+- AI-проверка пользовательских ответов;
+- чат-помощник;
+- TTS-озвучка раздела с постепенной генерацией аудио по небольшим фрагментам;
+- подсветка текущих слов при озвучке, автоскролл, изменение скорости, скачивание WAV;
+- простая password-auth защита через `AUTH_PASSWORD`.
+
+## Архитектура
+
+- `frontend` - Next.js приложение, открывает библиотеку, mdBook и тренажер.
+- `backend` - Express + TypeScript API для загрузки файлов, сборки книг, AI-запросов и хранения кэшей.
+- `tts` - FastAPI сервис озвучки на Silero TTS.
+- `deploy/nginx.conf` - nginx-прокси для frontend, backend и TTS.
+
+## Пайплайн сборки книги
 
 1. Frontend загружает `.pdf`, `.txt`, `.md` или `.markdown` в `/api/sources`.
 2. Backend сохраняет файл в `backend/data/sources`.
-3. `/api/books/generate` запускает конвертацию в Markdown:
-   - Markdown-файлы используются напрямую;
-   - TXT нормализуется в простой Markdown;
-   - PDF сначала пробуется через `pdf2md`;
-   - если `pdf2md` недоступен, PDF извлекается через `pdftotext`;
-   - если установлен `pandoc`, результат `pdftotext` дополнительно нормализуется в GFM Markdown.
-4. `BookService` раскладывает Markdown по главам, пишет `SUMMARY.md` и `book.toml`.
-5. `mdbook build` генерирует HTML-книгу.
-6. Frontend открывает готовый mdBook в iframe.
+3. `/api/books/generate` или `/api/books/open` запускает подготовку книги.
+4. PDF конвертируется:
+   - сначала через `pdf2md`, если он доступен;
+   - иначе через `pdftotext -layout`;
+   - если доступен `pandoc`, результат дополнительно нормализуется в GFM Markdown.
+5. Конвертер чистит служебные колонтитулы и не должен принимать верхние заголовки страницы за начало нового раздела.
+6. `BookService` разбивает Markdown по заголовкам, создает `SUMMARY.md`, `book.toml` и helper-скрипты.
+7. `mdbook build` генерирует HTML-книгу.
+8. Frontend открывает готовую книгу в iframe.
 
-OCR для сканов пока не реализован. Его логично добавить отдельным fallback после неудачного извлечения текстового слоя из PDF.
+OCR для сканированных PDF пока не реализован.
 
-## Зависимости окружения
+## Зависимости
 
-Нужны Node.js-зависимости frontend/backend и системные CLI:
+Node.js зависимости:
 
 ```bash
 cd backend && npm install
 cd ../frontend && npm install
 ```
 
-Для генерации книг:
+Python/TTS зависимости:
+
+```bash
+cd tts
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+Системные CLI:
 
 ```bash
 mdbook --version
-```
-
-Для PDF:
-
-```bash
-pdf2md --version
 pdftotext -v
 pandoc --version
 ```
 
-Достаточно иметь `pdf2md` или `pdftotext`; `pandoc` используется как дополнительная нормализация.
+`pdf2md` опционален. Для PDF достаточно `pdftotext`; `pandoc` улучшает нормализацию Markdown.
+
+Если backend запускается из systemd и не видит `mdbook`, укажите полный путь:
+
+```bash
+MDBOOK_BIN=/home/aleksandr/.cargo/bin/mdbook
+```
+
+## AI-настройки
+
+Поддерживаются OpenAI-compatible API и Gemini CLI.
+
+Основные переменные окружения backend:
+
+```bash
+AUTH_PASSWORD=...
+AI_PROVIDER=gemini-cli
+GEMINI_BIN=gemini
+GEMINI_MODEL=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
+MDBOOK_BIN=/home/aleksandr/.cargo/bin/mdbook
+```
 
 ## Запуск
 
@@ -59,10 +106,37 @@ cd frontend
 npm run dev
 ```
 
-Frontend проксирует `/api/*` на backend `http://127.0.0.1:4173`.
+TTS:
 
-## Что дальше
+```bash
+cd tts
+.venv/bin/python main.py
+```
 
-- добавить OCR fallback для сканированных PDF;
-- сохранить метаданные генерации книги;
-- подключить AI-самопроверку поверх уже сгенерированной структуры mdBook.
+По умолчанию:
+
+- frontend: `http://127.0.0.1:3000`;
+- backend: `http://127.0.0.1:4173`;
+- TTS: `http://127.0.0.1:8000`.
+
+## Проверка
+
+```bash
+cd backend && npm run build
+cd ../frontend && npm run lint
+```
+
+## Данные
+
+- исходники: `backend/data/sources`;
+- собранные книги: `backend/data/books`;
+- кэш конспектов: `backend/data/books/<bookId>/cache/section-summaries`;
+- прогресс: `backend/data/progress-db.json`;
+- браузерный кэш TTS: IndexedDB `learn-helper-tts`.
+
+## Ограничения
+
+- OCR для сканов не реализован;
+- TTS генерирует аудио небольшими частями, но сам сервис `/api/tts` пока возвращает один WAV на один небольшой запрос;
+- точность подсветки слов зависит от эвристических timecodes TTS;
+- качество разбиения PDF зависит от текстового слоя и верстки документа.
