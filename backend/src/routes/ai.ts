@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { config } from "../config";
 import { completeJson } from "../services/aiService";
+import { BookService } from "../services/bookService";
 import { roughSplitText, parseJsonOrFallback, asArray, extractPageRange } from "../utils/text";
-import { PreparePayload, AnalysisPayload, QuestionsPayload, ChatPayload, GenerateQuestionsPayload } from "../types";
+import { PreparePayload, AnalysisPayload, QuestionsPayload, ChatPayload, GenerateQuestionsPayload, SummarizeSectionPayload } from "../types";
 
 export const aiRouter = Router();
 
@@ -223,6 +224,61 @@ ${context}
   }
 });
 
+aiRouter.post("/summarize-section", async (req, res) => {
+  const payload = req.body as SummarizeSectionPayload;
+  const provider = normalizeProvider(payload.provider);
+  const text = String(payload.text || "").replace(/\r\n?/g, "\n").trim();
+  const title = String(payload.title || "Текущий раздел").trim();
+  const bookId = String(payload.bookId || "").trim();
+  const sectionPath = String(payload.sectionPath || "").trim();
+
+  if (provider === "openai-compatible" && config.isOpenAiCloud && !config.apiKey) {
+    res.status(500).json({ error: "OPENAI_API_KEY is not set." });
+    return;
+  }
+
+  if (!text) {
+    res.status(400).json({ error: "Section text is empty." });
+    return;
+  }
+
+  try {
+    if (bookId && sectionPath && BookService.hasGeneratedBook(bookId)) {
+      const cachedSummary = await BookService.getCachedSectionSummary(bookId, sectionPath, text);
+      if (cachedSummary) {
+        res.status(200).json({ ...cachedSummary, cached: true });
+        return;
+      }
+    }
+
+    const clippedText = clipSectionText(text);
+    const system = "Ты помощник по обучающему чтению. Составь краткий конспект текущего раздела. Отвечай только валидным JSON-объектом без markdown.";
+    const userPrompt = JSON.stringify({
+      title,
+      text: clippedText,
+      task: [
+        "Сделай конспект, который помогает повторить раздел после чтения, но не заменяет исходный текст.",
+        "Пиши по-русски, простыми формулировками.",
+        "Не добавляй факты, которых нет в тексте.",
+        "summary - 2-4 предложения.",
+        "keyPoints - 4-7 коротких тезисов.",
+        "terms - до 6 важных понятий с коротким объяснением, если они есть.",
+        "Верни строго JSON: {\"summary\":\"string\",\"keyPoints\":[\"string\"],\"terms\":[{\"term\":\"string\",\"definition\":\"string\"}]}",
+      ].join(" "),
+    }, null, 2);
+
+    const responseText = await completeJson(system, userPrompt, 1800, provider);
+    const summary = normalizeSectionSummary(parseJsonOrFallback(responseText, {}));
+    if (bookId && sectionPath && BookService.hasGeneratedBook(bookId)) {
+      await BookService.saveSectionSummary(bookId, sectionPath, text, summary);
+    }
+
+    res.status(200).json({ ...summary, cached: false });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 function normalizeProvider(value?: string) {
   const provider = String(value || config.defaultProvider || "").trim();
   if (provider === "gemini-cli") return "gemini-cli";
@@ -257,6 +313,36 @@ function normalizeGeneratedQuestions(data: any) {
     quizzes,
     practicalTask,
     openQuestion,
+  };
+}
+
+function clipSectionText(text: string) {
+  const maxChars = 24000;
+  if (text.length <= maxChars) return text;
+
+  const head = text.slice(0, Math.floor(maxChars * 0.68));
+  const tail = text.slice(-Math.floor(maxChars * 0.28));
+  return `${head}\n\n[...середина раздела сокращена из-за длины...]\n\n${tail}`;
+}
+
+function normalizeSectionSummary(data: any) {
+  const summary = String(data?.summary || data?.shortSummary || "").trim();
+  const keyPoints = dedupeStrings(asArray(data?.keyPoints || data?.points || data?.bullets)
+    .map((item) => String(item).trim())
+    .filter(Boolean))
+    .slice(0, 7);
+  const terms = (Array.isArray(data?.terms) ? data.terms : [])
+    .map((item: any) => ({
+      term: String(item?.term || item?.name || "").trim(),
+      definition: String(item?.definition || item?.description || item?.meaning || "").trim(),
+    }))
+    .filter((item: any) => item.term && item.definition)
+    .slice(0, 6);
+
+  return {
+    summary: summary || keyPoints.join(" "),
+    keyPoints,
+    terms,
   };
 }
 

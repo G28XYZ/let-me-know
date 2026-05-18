@@ -166,6 +166,7 @@ function pdfTextToMarkdown(text: string, title: string) {
   let paragraph: string[] = [];
   let pendingChapterNumber = "";
   let currentHeading = "";
+  let currentChapterHeading = "";
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -178,6 +179,7 @@ function pdfTextToMarkdown(text: string, title: string) {
     if (!heading || heading === currentHeading) return;
     flushParagraph();
     currentHeading = heading;
+    if (level === 1) currentChapterHeading = heading;
     markdownLines.push(`${"#".repeat(level)} ${heading}`, "");
   };
 
@@ -191,7 +193,8 @@ function pdfTextToMarkdown(text: string, title: string) {
 
     let seenContentOnPage = false;
 
-    for (const rawLine of rawLines) {
+    for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex += 1) {
+      const rawLine = rawLines[lineIndex];
       const line = normalizePdfLine(rawLine);
       if (!line) {
         flushParagraph();
@@ -200,6 +203,8 @@ function pdfTextToMarkdown(text: string, title: string) {
 
       if (isStandalonePageNumber(line)) continue;
       if (!seenContentOnPage && line === currentHeading) continue;
+      if (!seenContentOnPage && line === currentChapterHeading) continue;
+      if (!seenContentOnPage && isLikelyRunningHeader(line, findNextMeaningfulLine(rawLines, lineIndex + 1))) continue;
 
       seenContentOnPage = true;
 
@@ -286,4 +291,26 @@ function isStandalonePdfHeading(line: string) {
 
 function looksLikeListItem(line: string) {
   return /^\d+\.\s/.test(line);
+}
+
+function findNextMeaningfulLine(lines: string[], startIndex: number) {
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = normalizePdfLine(lines[index]);
+    if (line && !isStandalonePageNumber(line)) return line;
+  }
+
+  return "";
+}
+
+function isLikelyRunningHeader(line: string, nextLine: string) {
+  if (!nextLine) return false;
+
+  const looksLikeHeading =
+    /^Глава\s+\d+(?:\.|\s)/i.test(line)
+    || /^(\d+(?:\.\d+)+)\.\s+/.test(line)
+    || isStandalonePdfHeading(line);
+
+  if (!looksLikeHeading) return false;
+
+  return /^[а-яёa-z,(«"„]/.test(nextLine);
 }

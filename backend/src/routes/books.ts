@@ -43,6 +43,8 @@ booksRouter.post("/open", async (req, res) => {
 
     if (!cached) {
       await BookService.generateBook(source.absolutePath, bookId, source.fileName);
+    } else {
+      await BookService.ensureSectionSummaryEnabled(bookId);
     }
 
     res.json({ success: true, bookId, cached });

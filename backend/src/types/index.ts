@@ -60,3 +60,11 @@ export interface GenerateQuestionsPayload {
   sections: Array<{ title: string; text: string }>;
   provider?: string;
 }
+
+export interface SummarizeSectionPayload {
+  title?: string;
+  text: string;
+  bookId?: string;
+  sectionPath?: string;
+  provider?: string;
+}

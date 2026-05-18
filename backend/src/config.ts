@@ -11,6 +11,7 @@ export const config = {
   defaultProvider: process.env.AI_PROVIDER || "openai-compatible",
   geminiBin: process.env.GEMINI_BIN || "gemini",
   geminiModel: process.env.GEMINI_MODEL || "",
+  mdbookBin: process.env.MDBOOK_BIN || "",
 };
 
 function normalizeBaseUrl(value: string) {
