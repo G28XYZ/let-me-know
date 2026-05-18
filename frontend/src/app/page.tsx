@@ -72,7 +72,27 @@ export default function Home() {
 
   useEffect(() => {
     queueMicrotask(() => {
-      setIsAuthenticated(Boolean(localStorage.getItem("auth_token")));
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      void fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: token }),
+      }).then((response) => {
+        if (response.ok) {
+          setIsAuthenticated(true);
+          return;
+        }
+
+        localStorage.removeItem("auth_token");
+        setIsAuthenticated(false);
+      }).catch(() => {
+        setIsAuthenticated(true);
+      });
     });
   }, []);
 

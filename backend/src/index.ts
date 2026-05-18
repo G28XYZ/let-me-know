@@ -15,6 +15,7 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
+const authCookieName = "learn_helper_auth";
 
 // Initialize services
 BookService.init().catch(console.error);
@@ -30,6 +31,12 @@ app.post("/api/auth", (req, res) => {
   console.log(`Auth attempt. Provided: "${password}", Expected: "${expectedPassword}"`);
   
   if (!expectedPassword || password === expectedPassword) {
+    res.cookie(authCookieName, password || "authenticated", {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
     res.json({ success: true });
   } else {
     res.status(401).json({ error: "Unauthorized" });
@@ -43,12 +50,27 @@ const authMiddleware = (req: express.Request, res: express.Response, next: expre
   }
   
   const authHeader = req.headers.authorization;
-  if (authHeader && authHeader === `Bearer ${expectedPassword}`) {
+  const cookieToken = parseCookieHeader(req.headers.cookie || "")[authCookieName];
+  if (authHeader === `Bearer ${expectedPassword}` || cookieToken === expectedPassword) {
     next();
   } else {
     res.status(401).json({ error: "Unauthorized" });
   }
 };
+
+function parseCookieHeader(cookieHeader: string) {
+  return cookieHeader.split(";").reduce<Record<string, string>>((cookies, item) => {
+    const separatorIndex = item.indexOf("=");
+    if (separatorIndex === -1) return cookies;
+
+    const key = item.slice(0, separatorIndex).trim();
+    const value = item.slice(separatorIndex + 1).trim();
+    if (!key) return cookies;
+
+    cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
 
 // Routes
 app.use("/api/health", authMiddleware, healthRouter);
