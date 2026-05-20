@@ -47,7 +47,7 @@ export async function listSourceFiles(): Promise<SourceFile[]> {
       relativePath: file.relativePath,
       size: file.size,
       updatedAt: file.updatedAt,
-      canDelete: true,
+      canDelete: root.key === "library",
     }));
   }));
 
@@ -82,8 +82,12 @@ export function resolveSourceFile(id: string) {
 }
 
 export async function deleteSourceFile(id: string) {
+  const decoded = decodeSourceId(id);
+  if (!decoded || decoded.rootKey !== "library") return false;
+
   const source = resolveSourceFile(id);
   if (!source) return false;
+
   await unlink(source.absolutePath);
   return true;
 }

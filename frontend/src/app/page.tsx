@@ -285,6 +285,42 @@ export default function Home() {
     }
   };
 
+  const handleLibrarySourceDelete = async (source: SourceFileSummary) => {
+    if (!source.canDelete) return;
+    if (!window.confirm(`Удалить "${source.name}" из библиотеки?`)) return;
+
+    setBusy(true);
+    setBusyTitle("Удаление книги");
+    setBusyText(`Удаляем ${source.name}...`);
+
+    try {
+      const response = await fetchWithAuth(`/api/sources/${encodeURIComponent(source.id)}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: "Ошибка при удалении книги" }));
+        throw new Error(error.error || "Ошибка при удалении книги");
+      }
+
+      setSourceFiles((previousSources) => previousSources.filter((item) => item.id !== source.id));
+      localStorage.removeItem(questionSetsStorageKey(source.id));
+
+      if (activeSource?.id === source.id || activeBookId === source.id) {
+        setActiveBookId(null);
+        setActiveSource(null);
+        setQuestionSets([]);
+        setQuestionSetsBookId(null);
+        setActiveQuestionSetId("");
+        setWorkspaceTab("book");
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Ошибка при удалении книги");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRegenerateActiveBook = async () => {
     if (!activeSource) return;
 
@@ -364,6 +400,7 @@ export default function Home() {
         onClose={() => setLibraryOpen(false)}
         onRefresh={loadSourceFiles}
         onOpenSource={handleLibrarySourceOpen}
+        onDeleteSource={handleLibrarySourceDelete}
       />
 
       <main className="app-main">

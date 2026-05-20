@@ -74,6 +74,14 @@ export class BookService {
     return existsSync(path.join(this.getBookPath(bookId), "index.html"));
   }
 
+  static async deleteGeneratedBook(bookId: string) {
+    const bookRoot = this.getBookRoot(bookId);
+    if (!existsSync(bookRoot)) return false;
+
+    await fs.rm(bookRoot, { recursive: true, force: true });
+    return true;
+  }
+
   static async ensureSectionSummaryEnabled(bookId: string) {
     const bookRoot = this.getBookRoot(bookId);
     const indexPath = path.join(this.getBookPath(bookId), "index.html");

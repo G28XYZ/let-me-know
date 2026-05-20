@@ -9,6 +9,7 @@ export type BookLibraryModalProps = {
   onClose: () => void;
   onRefresh: () => void;
   onOpenSource: (source: SourceFileSummary) => void;
+  onDeleteSource: (source: SourceFileSummary) => void;
 };
 
 export function BookLibraryModal({
@@ -19,6 +20,7 @@ export function BookLibraryModal({
   onClose,
   onRefresh,
   onOpenSource,
+  onDeleteSource,
 }: BookLibraryModalProps) {
   const [query, setQuery] = useState("");
 
@@ -81,6 +83,17 @@ export function BookLibraryModal({
                     <strong>{cleanBookTitle(source.name)}</strong>
                     <span>{formatFileSize(source.size)}</span>
                   </button>
+                  {source.canDelete && (
+                    <button
+                      type="button"
+                      className="library-delete-button"
+                      onClick={() => onDeleteSource(source)}
+                      disabled={busy}
+                      title={`Удалить ${source.name}`}
+                    >
+                      Удалить
+                    </button>
+                  )}
                   <p className="mt-3 truncate text-center text-xs text-muted" title={source.name}>{source.name}</p>
                 </article>
               ))}

@@ -1,4 +1,5 @@
 import { raw, Router } from "express";
+import { BookService } from "../services/bookService";
 import { deleteSourceFile, getSourceRoots, listSourceFiles, resolveSourceFile, saveSourceFile } from "../services/sourceStore";
 
 export const sourcesRouter = Router();
@@ -37,11 +38,16 @@ sourcesRouter.get("/:id", async (req, res) => {
 });
 
 sourcesRouter.delete("/:id", async (req, res) => {
-  const deleted = await deleteSourceFile(req.params.id);
-  if (!deleted) {
-    res.status(404).json({ error: "Source file not found." });
-    return;
-  }
+  try {
+    const deleted = await deleteSourceFile(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: "Source file not found." });
+      return;
+    }
 
-  res.status(200).json({ deleted: true });
+    await BookService.deleteGeneratedBook(req.params.id);
+    res.status(200).json({ deleted: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Could not delete source file." });
+  }
 });

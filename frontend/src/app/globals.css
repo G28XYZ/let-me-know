@@ -380,6 +380,33 @@
   min-width: 0;
 }
 
+.library-delete-button {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  bottom: 42px;
+  max-width: calc(100% - 16px);
+  border: 1px solid color-mix(in srgb, var(--warning-border) 78%, transparent);
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--theme-popup-bg) 88%, transparent);
+  color: var(--fg);
+  font-size: 0.72rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.library-shelf-item:hover .library-delete-button,
+.library-delete-button:focus-visible {
+  opacity: 1;
+}
+
+.library-delete-button:hover {
+  border-color: var(--warning-border);
+  background: color-mix(in srgb, var(--warning-border) 32%, var(--theme-popup-bg));
+}
+
 .library-shelf-item::after {
   content: "";
   position: absolute;
@@ -521,9 +548,9 @@
 }
 
 @keyframes fab3d {
-  0% { transform: perspective(400px) rotateY(-20deg); }
-  50% { transform: perspective(400px) rotateY(20deg); }
-  100% { transform: perspective(400px) rotateY(-20deg); }
+  0% { transform: perspective(400px) rotateY(-30deg); }
+  50% { transform: perspective(400px) rotateY(30deg); }
+  100% { transform: perspective(400px) rotateY(-30deg); }
 }
 
 .assistant-fab:hover {
